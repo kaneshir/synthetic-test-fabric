@@ -17,6 +17,34 @@ npm install synthetic-test-fabric
 
 Peer requirements: Node.js 20+, TypeScript 5+.
 
+**Optional — LLM-driven flow generation:**
+
+```bash
+npm install @kaneshir/lisa-mcp
+```
+
+With `@kaneshir/lisa-mcp` installed, set `LISA_LLM_PROVIDER` to activate the
+agentic GENERATE_FLOWS loop. The framework spawns the MCP binary automatically
+and drives a multi-turn tool-call session against your app:
+
+```bash
+# Anthropic (requires @anthropic-ai/sdk peer)
+npm install @kaneshir/lisa-mcp @anthropic-ai/sdk
+LISA_LLM_PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-... npx fab orchestrate
+
+# OpenAI (requires openai peer)
+npm install @kaneshir/lisa-mcp openai
+LISA_LLM_PROVIDER=openai OPENAI_API_KEY=sk-... npx fab orchestrate
+
+# Gemini (requires @google/generative-ai peer)
+npm install @kaneshir/lisa-mcp @google/generative-ai
+LISA_LLM_PROVIDER=gemini GEMINI_API_KEY=... npx fab orchestrate
+```
+
+Without `@kaneshir/lisa-mcp`, your `BrowserAdapter` supplies its own selectors
+and flow generation is fully manual — this is supported and is the default.
+See [docs/lisa-mcp.md](./lisa-mcp.md) for the full integration guide.
+
 ---
 
 ## 2. Implement the adapters

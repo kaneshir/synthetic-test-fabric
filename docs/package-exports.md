@@ -67,6 +67,38 @@ Activated by `LISA_LLM_PROVIDER`. Requires `@kaneshir/lisa-mcp`.
 
 ---
 
+## MCP client
+
+Used internally by `AgentLoopProvider`. Exported for consumers who need to
+spawn and communicate with an MCP server directly (e.g. from a custom
+`BrowserAdapter`).
+
+| Export | Kind | Description |
+|--------|------|-------------|
+| `McpClient` | class | Spawns an MCP server binary over stdio and communicates via JSON-RPC. `getTools()` calls `tools/list`; `callTool(name, args)` calls `tools/call`. Call `close()` when done to kill the child process. |
+| `createMcpClient` | function | `(options: McpClientOptions) => McpClient`. Factory that sets up the stdio transport and attaches the MCP handshake. |
+| `McpClientOptions` | type | `{ cmd: string; args?: string[]; env?: Record<string, string> }` — passed to `createMcpClient`. |
+| `McpTool` | type | `{ name: string; description: string; inputSchema: object }` — one entry in the `tools/list` response. |
+| `McpCallResult` | type | `{ content: Array<{ type: 'text'; text: string }> }` — response from `tools/call`. |
+
+**Example — call lisa-mcp directly from a BrowserAdapter:**
+
+```typescript
+import { createMcpClient } from 'synthetic-test-fabric';
+import { buildLisaMcpCommand } from '@kaneshir/lisa-mcp';
+
+const { cmd, args } = buildLisaMcpCommand();
+const client = createMcpClient({ cmd, args, env: { LISA_APP_URL: 'http://localhost:5002' } });
+
+const tools = await client.getTools();
+const result = await client.callTool('lisa_health', {});
+console.log(result.content[0].text); // '{"status":"ok"}'
+
+await client.close();
+```
+
+---
+
 ## Adapter interfaces
 
 | Export | Kind | Description |
