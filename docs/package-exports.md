@@ -21,20 +21,49 @@ Everything exported from `synthetic-test-fabric`. Grouped by category.
 
 ## LLM providers
 
-Used by the GENERATE_FLOWS phase. See `docs/orchestrator-reference.md` for the full resolution order.
+Used by the GENERATE_FLOWS phase. See `docs/env-vars.md` for the full resolution order and `LISA_LLM_PROVIDER` usage.
+
+### Simple providers — `complete(prompt): Promise<string>`
 
 | Export | Kind | Description |
 |--------|------|-------------|
-| `LlmProvider` | type | Interface all providers implement: `id: string` + `complete(prompt, opts?): Promise<string>`. |
+| `LlmProvider` | type | Interface: `id: string` + `complete(prompt, opts?): Promise<string>`. |
 | `ClaudeCliProvider` | class | Spawns `claude -p` subprocess. Uses Claude.ai subscription — no API key needed. Zero-config default when `claude` is in PATH. |
 | `ClaudeSdkProvider` | class | Calls Anthropic API via `@anthropic-ai/sdk`. Requires `ANTHROPIC_API_KEY` or explicit `apiKey`. Peer dep: `npm install @anthropic-ai/sdk`. |
 | `GeminiProvider` | class | Calls Google Generative AI via `@google/generative-ai`. Requires `GEMINI_API_KEY`. Peer dep: `npm install @google/generative-ai`. |
 | `OllamaProvider` | class | Calls local Ollama HTTP API. No API key. Reads `OLLAMA_HOST` (default: `http://localhost:11434`). |
 | `OpenAIProvider` | class | Calls OpenAI API via `openai` package. Covers GPT-4o, o3, Codex. Requires `OPENAI_API_KEY`. Peer dep: `npm install openai`. |
-| `resolveProvider` | function | `(flowModel, llmProvider) => LlmProvider \| undefined`. Runs the 8-step resolution order. Useful for testing or custom orchestration. |
 | `claudeCliAvailable` | function | `() => boolean`. Returns true if `claude` is in PATH. |
-| `DEFAULT_CLAUDE_SDK_MODEL` | const | Default model string for `ClaudeSdkProvider`. Verify against Anthropic models page before major releases. |
+| `DEFAULT_CLAUDE_SDK_MODEL` | const | Default model string for `ClaudeSdkProvider`. |
 | `DEFAULT_GEMINI_MODEL` | const | Default model string for `GeminiProvider` (`'gemini-1.5-pro'`). |
+
+### Agentic tool-call loop (v0.3.0+)
+
+Activated by `LISA_LLM_PROVIDER`. Requires `@kaneshir/lisa-mcp`.
+
+| Export | Kind | Description |
+|--------|------|-------------|
+| `AgentLoopProvider` | class | Implements `LlmProvider` via multi-turn tool-call loop. Constructor: `(toolProvider: ToolCallingLlmProvider, mcpClientFactory: () => McpClient, opts?)`. Each `complete()` call creates a fresh `McpClient`, fetches tools, drives the LLM ↔ MCP loop until a text response or `maxIterations` (default 10), then closes the client. |
+| `ToolCallingLlmProvider` | type | Interface for SDK-level tool calling: `{ id: string; chat({ messages, tools, options? }): Promise<ChatResponse> }`. |
+| `AnthropicToolCallingProvider` | class | Wraps `@anthropic-ai/sdk`. Formats tools as `input_schema`, parses `tool_use` blocks, serializes second-turn results as `tool_result` content blocks. |
+| `OpenAIToolCallingProvider` | class | Wraps `openai`. Formats tools as `type:function`, parses `tool_calls`, serializes second-turn results as `role:tool` messages. |
+| `GeminiToolCallingProvider` | class | Wraps `@google/generative-ai`. Uses camelCase `functionDeclarations`, parses `functionCall` parts (positional IDs `gemini-call-N`), serializes results as `functionResponse` parts with the original function name resolved from the preceding assistant turn. |
+
+### Supporting types (tool-call loop)
+
+| Export | Kind | Description |
+|--------|------|-------------|
+| `ToolDefinition` | type | `{ name, description, parameters }` — neutral tool schema passed to `chat()`. |
+| `ToolCall` | type | `{ id, name, args }` — a tool call returned by the LLM. |
+| `ToolResult` | type | `{ toolCallId, content }` — result injected back into the conversation. |
+| `Message` | type | Union of user, assistant (with optional `toolCalls`), and tool-result turns. |
+| `ChatResponse` | type | `{ content?, toolCalls? }` — response from `chat()`. |
+
+### Provider resolution
+
+| Export | Kind | Description |
+|--------|------|-------------|
+| `resolveProvider` | function | `(flowModel?, llmProvider?, { iterRoot? }?) => LlmProvider \| undefined`. Runs the 9-step resolution order including `LISA_LLM_PROVIDER`. |
 
 ---
 
