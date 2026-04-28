@@ -1,6 +1,6 @@
 {
   "name": "synthetic-test-fabric",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Generic engine for autonomous synthetic test loops: simulation → browser flows → scoring → feedback",
   "keywords": [
     "testing",
