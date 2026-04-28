@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Taskboard</title>
+  <!-- seed-data.js is written by DemoAppAdapter.seed() and sets window.__DEMO_SEED__ -->
+  <script src="seed-data.js" onerror="void 0"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f7fa; color: #333; }
+    nav { background: #1a1a2e; color: white; padding: 12px 24px; display: flex; align-items: center; gap: 24px; }
+    nav a { color: #ccc; text-decoration: none; font-size: 14px; }
+    nav a:hover, nav a.active { color: white; }
+    .nav-brand { font-weight: 700; font-size: 18px; color: white; margin-right: auto; }
+    .screen { display: none; max-width: 800px; margin: 40px auto; padding: 0 24px; }
+    .screen.active { display: block; }
+    h1 { font-size: 28px; margin-bottom: 8px; }
+    h2 { font-size: 22px; margin-bottom: 16px; }
+    p { color: #666; line-height: 1.6; }
+    .card { background: white; border-radius: 8px; padding: 24px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); margin-bottom: 16px; }
+    .form-group { margin-bottom: 16px; }
+    label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 6px; color: #555; }
+    input[type="email"], input[type="password"], input[type="text"] {
+      width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 6px;
+      font-size: 14px; outline: none; transition: border-color .2s;
+    }
+    input:focus { border-color: #4f46e5; }
+    .btn { padding: 10px 20px; border: none; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; transition: opacity .2s; }
+    .btn:hover { opacity: 0.85; }
+    .btn-primary { background: #4f46e5; color: white; }
+    .btn-danger { background: #dc2626; color: white; }
+    .btn-secondary { background: #e5e7eb; color: #333; }
+    .btn-success { background: #16a34a; color: white; }
+    .alert { padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; font-size: 14px; }
+    .alert-error { background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; }
+    .alert-success { background: #dcfce7; color: #16a34a; border: 1px solid #86efac; }
+    .task-item { display: flex; align-items: center; gap: 12px; padding: 14px; border: 1px solid #e5e7eb; border-radius: 6px; margin-bottom: 8px; background: white; cursor: pointer; }
+    .task-item:hover { border-color: #4f46e5; }
+    .task-item.completed .task-title { text-decoration: line-through; color: #9ca3af; }
+    .task-checkbox { width: 18px; height: 18px; border-radius: 50%; border: 2px solid #d1d5db; flex-shrink: 0; }
+    .task-checkbox.done { background: #16a34a; border-color: #16a34a; }
+    .task-title { flex: 1; font-size: 14px; }
+    .task-tag { font-size: 11px; padding: 2px 8px; border-radius: 99px; background: #ede9fe; color: #6d28d9; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 12px; }
+    .badge-pending { background: #fef3c7; color: #d97706; }
+    .badge-done { background: #dcfce7; color: #16a34a; }
+    .profile-avatar { width: 64px; height: 64px; border-radius: 50%; background: #4f46e5; color: white; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 700; margin-bottom: 16px; }
+    .stat-row { display: flex; gap: 16px; margin-top: 16px; }
+    .stat { text-align: center; padding: 16px; background: #f9fafb; border-radius: 6px; flex: 1; }
+    .stat-num { font-size: 28px; font-weight: 700; color: #4f46e5; }
+    .stat-label { font-size: 12px; color: #6b7280; margin-top: 4px; }
+    .add-task-form { margin-top: 20px; padding: 16px; background: #f9fafb; border-radius: 8px; border: 1px dashed #d1d5db; }
+    .task-detail-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+    .task-meta { display: flex; gap: 24px; margin: 16px 0; }
+    .meta-item { font-size: 13px; color: #6b7280; }
+    .meta-item strong { color: #333; }
+    .home-hero { text-align: center; padding: 60px 0 40px; }
+    .home-hero h1 { font-size: 42px; color: #1a1a2e; margin-bottom: 12px; }
+    .home-hero p { font-size: 18px; max-width: 480px; margin: 0 auto 32px; }
+    .feature-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 32px; }
+    .feature-card { background: white; border-radius: 8px; padding: 20px; text-align: center; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+    .feature-icon { font-size: 28px; margin-bottom: 10px; }
+    .feature-card h3 { font-size: 15px; margin-bottom: 6px; }
+    .feature-card p { font-size: 13px; }
+    #validation-error { display: none; }
+  </style>
+</head>
+<body>
+
+<nav id="main-nav">
+  <span class="nav-brand" data-key="app.brand">Taskboard</span>
+  <a href="#home" data-key="nav.home" data-testid="nav-home">Home</a>
+  <a href="#dashboard" data-key="nav.dashboard" data-testid="nav-dashboard" id="nav-dashboard-link" style="display:none">Dashboard</a>
+  <a href="#profile" data-key="nav.profile" data-testid="nav-profile" id="nav-profile-link" style="display:none">Profile</a>
+  <a href="#login" data-key="nav.login" data-testid="nav-login" id="nav-login-link">Login</a>
+</nav>
+
+<!-- ── Home Screen ───────────────────────────────────────────────── -->
+<div id="screen-home" class="screen">
+  <div class="home-hero">
+    <h1 data-testid="app-title" data-key="home.title">Taskboard</h1>
+    <p data-testid="home-description" data-key="home.description">
+      A modern task management app — demo target for synthetic-test-fabric.
+    </p>
+    <a href="#login"><button class="btn btn-primary" data-key="home.get_started_btn">Get Started</button></a>
+  </div>
+  <div class="feature-grid">
+    <div class="feature-card">
+      <div class="feature-icon">✅</div>
+      <h3>Track Tasks</h3>
+      <p>Create and complete tasks with a single click.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">👥</div>
+      <h3>Team Ready</h3>
+      <p>Multiple user roles: member and employer.</p>
+    </div>
+    <div class="feature-card">
+      <div class="feature-icon">📊</div>
+      <h3>Progress Stats</h3>
+      <p>See completion stats on your profile page.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ── Login Screen ──────────────────────────────────────────────── -->
+<div id="screen-login" class="screen">
+  <div class="card" style="max-width:400px; margin:0 auto;">
+    <h2 data-testid="login-title" data-key="login.title">Sign In</h2>
+    <p style="margin-bottom:20px">Welcome back. Sign in to your account.</p>
+    <div id="login-error" class="alert alert-error" style="display:none" data-key="login.error_msg"></div>
+    <form id="login-form" onsubmit="handleLogin(event)">
+      <div class="form-group">
+        <label for="login-email">Email</label>
+        <input type="email" id="login-email" data-testid="login-email" data-key="login.email_input" placeholder="user@example.com" required>
+      </div>
+      <div class="form-group">
+        <label for="login-password">Password</label>
+        <input type="password" id="login-password" data-testid="login-password" data-key="login.password_input" placeholder="••••••••" required>
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%" data-testid="login-submit" data-key="login.submit_btn">Sign In</button>
+    </form>
+  </div>
+</div>
+
+<!-- ── Dashboard Screen ──────────────────────────────────────────── -->
+<div id="screen-dashboard" class="screen">
+  <h2 data-testid="dashboard-title" data-key="dashboard.title">Dashboard</h2>
+  <p data-key="dashboard.subtitle" style="margin-bottom:20px">Welcome back, <span id="dashboard-username" data-key="dashboard.username_label">User</span>!</p>
+
+  <div data-testid="task-list" data-key="dashboard.task_list" id="task-list"></div>
+
+  <div class="add-task-form">
+    <h3 style="font-size:15px; margin-bottom:12px" data-key="dashboard.new_task_heading">New Task</h3>
+    <div class="form-group">
+      <label for="task-title-input">Task Title</label>
+      <input type="text" id="task-title-input" data-testid="task-title-input" data-key="dashboard.task_title_input" placeholder="Enter task title…">
+    </div>
+    <!-- Intentional gap: no validation message rendered when title is empty -->
+    <div id="validation-error" data-key="dashboard.validation_error" style="display:none; color:#dc2626; font-size:13px; margin-bottom:8px;"></div>
+    <button class="btn btn-primary" data-testid="create-task-btn" data-key="dashboard.create_task_btn" onclick="handleCreateTask()">Add Task</button>
+    <button class="btn btn-secondary" style="margin-left:8px" data-key="dashboard.new_task_btn" data-testid="new-task-btn" onclick="document.getElementById('task-title-input').focus()">Clear</button>
+  </div>
+</div>
+
+<!-- ── Task Detail Screen ────────────────────────────────────────── -->
+<div id="screen-task" class="screen">
+  <div class="task-detail-header">
+    <button class="btn btn-secondary" data-key="task.back_btn" data-testid="task-back-btn" onclick="navigate('dashboard')">← Back</button>
+    <h2 data-key="task.title_heading" data-testid="task-detail-title" id="task-detail-title">Task</h2>
+  </div>
+  <div class="card">
+    <div class="task-meta">
+      <div class="meta-item" data-key="task.status_label">Status: <strong id="task-detail-status" data-key="task.status_value">pending</strong></div>
+      <div class="meta-item" data-key="task.created_label">Created: <strong id="task-detail-created" data-key="task.created_value">—</strong></div>
+      <div class="meta-item" data-key="task.assigned_label">Assigned: <strong id="task-detail-assigned" data-key="task.assigned_value">—</strong></div>
+    </div>
+    <p id="task-detail-desc" data-key="task.description" style="margin-bottom:20px; color:#555"></p>
+    <div id="task-actions">
+      <button class="btn btn-success" id="task-complete-btn" data-testid="task-complete-btn" data-key="task.complete_btn" onclick="handleCompleteTask()">Mark Complete</button>
+      <button class="btn btn-secondary" id="task-reopen-btn" data-testid="task-reopen-btn" data-key="task.reopen_btn" onclick="handleReopenTask()" style="display:none; margin-left:8px">Reopen</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Profile Screen ────────────────────────────────────────────── -->
+<div id="screen-profile" class="screen">
+  <div class="card">
+    <div class="profile-avatar" id="profile-avatar" data-key="profile.avatar">U</div>
+    <h2 data-testid="profile-title" data-key="profile.title">Profile</h2>
+    <p data-testid="profile-name" data-key="profile.name_label" id="profile-name" style="font-size:18px; font-weight:600; margin-bottom:4px">—</p>
+    <p data-testid="profile-role" data-key="profile.role_badge" id="profile-role" style="color:#6b7280; margin-bottom:16px">—</p>
+    <p data-key="profile.email_label" id="profile-email" style="color:#6b7280; margin-bottom:20px">—</p>
+    <div class="stat-row">
+      <div class="stat">
+        <div class="stat-num" id="stat-total" data-key="profile.stat_total">0</div>
+        <div class="stat-label">Total Tasks</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num" id="stat-done" data-key="profile.stat_done">0</div>
+        <div class="stat-label">Completed</div>
+      </div>
+      <div class="stat">
+        <div class="stat-num" id="stat-pct" data-key="profile.stat_pct">0%</div>
+        <div class="stat-label">Completion</div>
+      </div>
+    </div>
+  </div>
+  <button class="btn btn-danger" data-testid="profile-logout-btn" data-key="profile.logout_btn" onclick="handleLogout()" style="margin-top:16px">Sign Out</button>
+</div>
+
+<script>
+// ── State ────────────────────────────────────────────────────────────────────
+// Build USERS from seed-data.js (written by DemoAppAdapter.seed()), falling back
+// to hardcoded defaults so the SPA works before the first seed() run.
+const SEED_USERS = (typeof window !== 'undefined' && window.__DEMO_SEED__?.users) ?? [
+  { id: 'user-1', email: 'user1@demo.test',     password: 'demo123', name: 'Demo User 1',  role: 'member' },
+  { id: 'user-2', email: 'user2@demo.test',     password: 'demo123', name: 'Demo User 2',  role: 'member' },
+  { id: 'emp-1',  email: 'employer1@demo.test', password: 'demo123', name: 'Employer One', role: 'employer' },
+];
+const USERS = Object.fromEntries(SEED_USERS.map(u => [u.email, u]));
+
+const DEFAULT_TASKS = [
+  { id: 'task-1', title: 'Set up project repository',    status: 'completed', assignee: 'user-1', created: '2026-04-01' },
+  { id: 'task-2', title: 'Design database schema',       status: 'pending',   assignee: 'user-1', created: '2026-04-02' },
+  { id: 'task-3', title: 'Implement authentication flow', status: 'pending',  assignee: 'user-2', created: '2026-04-03' },
+];
+
+let state = {
+  session: null,
+  tasks: [],
+};
+
+function loadState() {
+  try {
+    const s = localStorage.getItem('tb_session');
+    if (s) state.session = JSON.parse(s);
+    const t = localStorage.getItem('tb_tasks');
+    state.tasks = t ? JSON.parse(t) : JSON.parse(JSON.stringify(DEFAULT_TASKS));
+  } catch { state.tasks = JSON.parse(JSON.stringify(DEFAULT_TASKS)); }
+}
+
+function saveState() {
+  try {
+    if (state.session) localStorage.setItem('tb_session', JSON.stringify(state.session));
+    else localStorage.removeItem('tb_session');
+    localStorage.setItem('tb_tasks', JSON.stringify(state.tasks));
+  } catch {}
+}
+
+// ── Routing ──────────────────────────────────────────────────────────────────
+function navigate(route, params) {
+  const hash = params ? `${route}/${params}` : route;
+  window.location.hash = hash;
+}
+
+function handleRoute() {
+  const raw = window.location.hash.replace('#', '') || 'home';
+  const parts = raw.split('/');
+  const route = parts[0];
+  const param = parts[1];
+
+  ['home','login','dashboard','task','profile'].forEach(id => {
+    document.getElementById(`screen-${id}`).classList.remove('active');
+  });
+
+  updateNav(route);
+
+  if (!state.session && !['home','login'].includes(route)) {
+    navigate('login'); return;
+  }
+
+  switch(route) {
+    case 'home':     renderHome(); break;
+    case 'login':    renderLogin(); break;
+    case 'dashboard': renderDashboard(); break;
+    case 'task':     renderTask(param); break;
+    case 'profile':  renderProfile(); break;
+    default:         renderHome();
+  }
+}
+
+function updateNav(route) {
+  const loggedIn = !!state.session;
+  document.getElementById('nav-login-link').style.display = loggedIn ? 'none' : '';
+  document.getElementById('nav-dashboard-link').style.display = loggedIn ? '' : 'none';
+  document.getElementById('nav-profile-link').style.display = loggedIn ? '' : 'none';
+  document.querySelectorAll('nav a').forEach(a => {
+    a.classList.toggle('active', a.getAttribute('href') === `#${route}`);
+  });
+}
+
+// ── Screens ──────────────────────────────────────────────────────────────────
+function renderHome() {
+  document.getElementById('screen-home').classList.add('active');
+}
+
+function renderLogin() {
+  document.getElementById('screen-login').classList.add('active');
+  document.getElementById('login-error').style.display = 'none';
+  document.getElementById('login-form').reset();
+}
+
+function renderDashboard() {
+  document.getElementById('screen-dashboard').classList.add('active');
+  const user = USERS[state.session.email];
+  document.getElementById('dashboard-username').textContent = user ? user.name : state.session.email;
+  renderTaskList();
+}
+
+function renderTaskList() {
+  const list = document.getElementById('task-list');
+  list.innerHTML = '';
+  if (!state.tasks.length) {
+    list.innerHTML = '<p style="color:#9ca3af; padding:12px 0" data-key="dashboard.empty_state">No tasks yet. Create one below!</p>';
+    return;
+  }
+  state.tasks.forEach((task, idx) => {
+    const div = document.createElement('div');
+    div.className = `task-item${task.status === 'completed' ? ' completed' : ''}`;
+    div.setAttribute('data-testid', 'task-item');
+    div.setAttribute('data-key', `dashboard.task_item_${task.id}`);
+    div.setAttribute('data-task-id', task.id);
+    div.innerHTML = `
+      <div class="task-checkbox${task.status === 'completed' ? ' done' : ''}"></div>
+      <span class="task-title" data-key="dashboard.task_title_${task.id}">${escHtml(task.title)}</span>
+      <span class="badge badge-${task.status === 'completed' ? 'done' : 'pending'}" data-key="dashboard.task_badge_${task.id}">${task.status}</span>
+    `;
+    div.onclick = () => navigate('task', task.id);
+    list.appendChild(div);
+  });
+}
+
+function renderTask(taskId) {
+  const task = state.tasks.find(t => t.id === taskId);
+  if (!task) { navigate('dashboard'); return; }
+  document.getElementById('screen-task').classList.add('active');
+  document.getElementById('task-detail-title').textContent = task.title;
+  document.getElementById('task-detail-status').textContent = task.status;
+  document.getElementById('task-detail-created').textContent = task.created;
+  document.getElementById('task-detail-assigned').textContent = task.assignee;
+  document.getElementById('task-detail-desc').textContent = `Task ID: ${task.id} — ${task.title}`;
+  const completeBtn = document.getElementById('task-complete-btn');
+  const reopenBtn = document.getElementById('task-reopen-btn');
+  if (task.status === 'completed') {
+    completeBtn.style.display = 'none';
+    reopenBtn.style.display = '';
+  } else {
+    completeBtn.style.display = '';
+    reopenBtn.style.display = 'none';
+  }
+  document.getElementById('screen-task').dataset.currentTask = taskId;
+}
+
+function renderProfile() {
+  document.getElementById('screen-profile').classList.add('active');
+  const user = USERS[state.session.email];
+  if (!user) { navigate('dashboard'); return; }
+  document.getElementById('profile-name').textContent = user.name;
+  document.getElementById('profile-role').textContent = user.role.charAt(0).toUpperCase() + user.role.slice(1);
+  document.getElementById('profile-email').textContent = state.session.email;
+  document.getElementById('profile-avatar').textContent = user.name.charAt(0).toUpperCase();
+  const total = state.tasks.length;
+  const done = state.tasks.filter(t => t.status === 'completed').length;
+  document.getElementById('stat-total').textContent = total;
+  document.getElementById('stat-done').textContent = done;
+  document.getElementById('stat-pct').textContent = total ? Math.round(done/total*100) + '%' : '0%';
+}
+
+// ── Actions ──────────────────────────────────────────────────────────────────
+function handleLogin(e) {
+  e.preventDefault();
+  const email = document.getElementById('login-email').value.trim().toLowerCase();
+  const pass = document.getElementById('login-password').value;
+  const user = USERS[email];
+  if (!user || user.password !== pass) {
+    const err = document.getElementById('login-error');
+    err.textContent = 'Invalid email or password.';
+    err.style.display = 'block';
+    return;
+  }
+  state.session = { email, userId: user.id, role: user.role };
+  saveState();
+  navigate('dashboard');
+}
+
+function handleLogout() {
+  state.session = null;
+  saveState();
+  navigate('home');
+}
+
+function handleCreateTask() {
+  const input = document.getElementById('task-title-input');
+  const title = input.value.trim();
+  // Intentional gap: empty title accepted without showing validation_error element
+  const newTask = {
+    id: `task-${Date.now()}`,
+    title: title || '(untitled)',
+    status: 'pending',
+    assignee: state.session ? state.session.userId : 'unknown',
+    created: new Date().toISOString().slice(0, 10),
+  };
+  state.tasks.push(newTask);
+  saveState();
+  input.value = '';
+  renderTaskList();
+}
+
+function handleCompleteTask() {
+  const taskId = document.getElementById('screen-task').dataset.currentTask;
+  const task = state.tasks.find(t => t.id === taskId);
+  if (task) { task.status = 'completed'; saveState(); renderTask(taskId); }
+}
+
+function handleReopenTask() {
+  const taskId = document.getElementById('screen-task').dataset.currentTask;
+  const task = state.tasks.find(t => t.id === taskId);
+  if (task) { task.status = 'pending'; saveState(); renderTask(taskId); }
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────────
+loadState();
+window.addEventListener('hashchange', handleRoute);
+handleRoute();
+</script>
+</body>
+</html>

@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [develop, main]
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [20.x, 22.x]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run build
+
+      - name: Run tests
+        run: npm test
+
+  demo:
+    name: Demo (full loop)
+    runs-on: ubuntu-latest
+    needs: build-and-test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: Run demo loop
+        run: npx tsx demo/run.ts
+        timeout-minutes: 5
+
+      - name: Upload demo artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-run-root
+          path: /tmp/fabric-loop/
+          retention-days: 7
+
+  lint:
+    name: Lint & Package Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check for trailing whitespace
+        run: |
+          git fetch origin develop --depth=1
+          git diff --check origin/develop...HEAD
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Check demo/src type alignment
+        run: npm run check:demo
+
+      - name: Check doc fixtures compile
+        run: npm run check:fixtures
+
+      - name: Check source boundaries
+        run: npm run check:boundary
+
+      - name: Scan published package surface
+        run: npm run check:package-surface
+
+      - name: Verify npm package contents
+        run: npm pack --dry-run
+
+      - name: Verify consumer import without optional SDKs
+        run: |
+          npm pack
+          TARBALL=$(ls synthetic-test-fabric-*.tgz)
+          mkdir -p /tmp/stf-consumer-test
+          cd /tmp/stf-consumer-test
+          npm init -y
+          npm install "$GITHUB_WORKSPACE/$TARBALL"
+          node -e "require('synthetic-test-fabric')"

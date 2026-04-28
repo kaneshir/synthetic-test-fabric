@@ -1,0 +1,32 @@
+# Build output
+dist/
+node_modules/
+
+# Lisa memory runtime files
+.lisa_memory/lisa.db
+.lisa_memory/*.db-shm
+.lisa_memory/*.db-wal
+
+# Fabric run artifacts
+fabric-score.json
+fabric-feedback.json
+*.last-run.json
+mini-sim-export.json
+test-results/
+
+# Playwright artifacts
+playwright-report/
+blob-report/
+
+# Demo seed bootstrap — written by DemoAppAdapter.seed() at runtime; not committed
+demo/app/seed-data.js
+
+# Visual regression — commit .fab-baselines/ to track baselines in source control.
+# Add the line below if you prefer CI artifact storage instead:
+# .fab-baselines/
+
+# Claude Code session files — local only, never committed
+docs/CLAUDE.md
+docs/claude-skills/CLAUDE.md
+src/CLAUDE.md
+src/cli/CLAUDE.md
