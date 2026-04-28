@@ -222,7 +222,50 @@ describe('McpClient', () => {
       const callPromise = client.callTool('lisa_health', {});
       await new Promise(r => setImmediate(r));
       client.close();
-      await expect(callPromise).rejects.toThrow('McpClient closed');
+      await expect(callPromise).rejects.toThrow(/exited|killed/);
+    });
+  });
+
+  describe('process lifecycle failures', () => {
+    it('spawn() rejects when process emits error before initialize responds', async () => {
+      const client = new McpClient({
+        memoryDir: '/tmp/test-memory',
+        command: { cmd: 'lisa-mcp', args: [] },
+      });
+
+      const spawnPromise = client.spawn();
+      await new Promise(r => setImmediate(r));
+      // Emit process error before initialize responds
+      mockProc.emit('error', new Error('ENOENT: binary not found'));
+      await expect(spawnPromise).rejects.toThrow(/ENOENT|timed out/);
+    }, 2000);
+
+    it('spawn() rejects when initialize returns a JSON-RPC error', async () => {
+      const client = new McpClient({
+        memoryDir: '/tmp/test-memory',
+        command: { cmd: 'lisa-mcp', args: [] },
+      });
+
+      const spawnPromise = client.spawn();
+      await new Promise(r => setImmediate(r));
+      respondError(mockProc, 1, 'unsupported protocol version');
+      await expect(spawnPromise).rejects.toThrow('MCP initialize failed: unsupported protocol version');
+    });
+
+    it('in-flight callTool rejects immediately when process closes unexpectedly', async () => {
+      const client = await spawnClient();
+      const callPromise = client.callTool('lisa_health', {});
+      await new Promise(r => setImmediate(r));
+      // Process crashes mid-flight
+      mockProc.emit('close', 1, null);
+      await expect(callPromise).rejects.toThrow(/exited/);
+    });
+
+    it('subsequent callTool after crash rejects immediately', async () => {
+      const client = await spawnClient();
+      mockProc.emit('close', 1, null);
+      await new Promise(r => setImmediate(r));
+      await expect(client.callTool('lisa_health', {})).rejects.toThrow('not spawned');
     });
   });
 

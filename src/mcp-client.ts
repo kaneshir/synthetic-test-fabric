@@ -79,11 +79,16 @@ export class McpClient {
     });
 
     this.proc.on('error', (err) => {
-      // Reject all pending requests
-      for (const resolve of this.pending.values()) {
-        resolve({ id: -1, error: { code: -1, message: err.message } });
-      }
-      this.pending.clear();
+      this.rejectAll(`Process error: ${err.message}`);
+    });
+
+    this.proc.on('close', (code, signal) => {
+      const msg = signal
+        ? `lisa-mcp process killed (signal: ${signal})`
+        : `lisa-mcp process exited (code: ${code})`;
+      this.rejectAll(msg);
+      this.proc = null;
+      this.initialized = false;
     });
 
     await this.initialize();
@@ -102,23 +107,27 @@ export class McpClient {
   }
 
   close(): void {
-    // Resolve all pending with a closed error so callers don't hang
+    this.proc?.kill();
+    // close event will fire and call rejectAll + clear state
+  }
+
+  private rejectAll(message: string): void {
     for (const resolve of this.pending.values()) {
-      resolve({ id: -1, error: { code: -32000, message: 'McpClient closed' } });
+      resolve({ id: -1, error: { code: -32000, message } });
     }
     this.pending.clear();
-    this.proc?.kill();
-    this.proc = null;
-    this.initialized = false;
   }
 
   private async initialize(): Promise<void> {
     if (this.initialized) return;
-    await this.call('initialize', {
+    const res = await this.call('initialize', {
       protocolVersion: '2024-11-05',
       capabilities: {},
       clientInfo: { name: 'stf-mcp-client', version: '1.0.0' },
     });
+    if (res.error) {
+      throw new Error(`MCP initialize failed: ${res.error.message}`);
+    }
     // Notification — no response expected
     this.send({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} });
     this.initialized = true;
