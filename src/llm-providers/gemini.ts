@@ -77,19 +77,27 @@ export class GeminiToolCallingProvider implements ToolCallingLlmProvider {
 
   private formatMessages(messages: Message[]): unknown[] {
     const result: unknown[] = [];
+    // Gemini's functionResponse.name must match the declared function name, not the
+    // synthetic ID (gemini-call-N). Populate this map when we see an assistant turn so
+    // the next user/tool-result turn can look up the real name.
+    const toolNameById = new Map<string, string>();
+
     for (const msg of messages) {
       if (msg.role === 'user' && msg.toolResults) {
-        // Tool results as functionResponse parts in a user turn
         result.push({
           role: 'user',
           parts: msg.toolResults.map(r => ({
             functionResponse: {
-              name: r.toolCallId, // Gemini matches by function name, not ID
+              name: toolNameById.get(r.toolCallId) ?? r.toolCallId,
               response: { content: r.content },
             },
           })),
         });
       } else if (msg.role === 'assistant' && msg.toolCalls) {
+        toolNameById.clear();
+        for (const tc of msg.toolCalls) {
+          toolNameById.set(tc.id, tc.name);
+        }
         result.push({
           role: 'model',
           parts: msg.toolCalls.map(tc => ({

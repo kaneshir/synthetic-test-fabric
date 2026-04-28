@@ -279,7 +279,41 @@ describe('GeminiToolCallingProvider', () => {
       c.parts?.some((p: any) => p.functionResponse),
     );
     expect(toolResultTurn).toBeDefined();
-    expect(toolResultTurn.parts[0].functionResponse).toMatchObject({ response: { content: 'ok' } });
+    expect(toolResultTurn.parts[0].functionResponse).toMatchObject({
+      name: 'lisa_health',      // must be tool name, NOT synthetic ID (gemini-call-0)
+      response: { content: 'ok' },
+    });
+  });
+
+  it('functionResponse.name resolves to tool name, not synthetic call id', async () => {
+    // Adapter-level round-trip: messages carry the same synthetic ID (gemini-call-0) that
+    // AgentLoopProvider produces. formatMessages() must resolve it back to the function name.
+    let capturedContents: any;
+    jest.doMock('@google/generative-ai', () => ({
+      GoogleGenerativeAI: class {
+        getGenerativeModel() {
+          return {
+            generateContent: jest.fn().mockImplementation(({ contents }: any) => {
+              capturedContents = contents;
+              return Promise.resolve({ response: { candidates: [{ content: { parts: [{ text: 'ok' }] } }] } });
+            }),
+          };
+        }
+      },
+    }), { virtual: true });
+
+    const provider = new GeminiToolCallingProvider({ apiKey: 'test-key' });
+    const messages: Message[] = [
+      USER_MSG,
+      { role: 'assistant', toolCalls: [{ id: 'gemini-call-0', name: 'lisa_health', args: {} }] },
+      { role: 'user', toolResults: [{ toolCallId: 'gemini-call-0', content: 'healthy' }] },
+    ];
+    await provider.chat({ messages, tools: [TOOL] });
+
+    const toolResultTurn = capturedContents.find((c: any) =>
+      c.parts?.some((p: any) => p.functionResponse),
+    );
+    expect(toolResultTurn.parts[0].functionResponse.name).toBe('lisa_health');
   });
 
   it('handles malformed args gracefully', async () => {
