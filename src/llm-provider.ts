@@ -1,4 +1,8 @@
 import { execFileSync } from 'child_process';
+import * as path from 'path';
+import { AgentLoopProvider } from './agent-loop';
+import { resolveToolCallingProvider } from './llm-providers';
+import { McpClient } from './mcp-client';
 
 // ---------------------------------------------------------------------------
 // Interface
@@ -241,54 +245,66 @@ export class OpenAIProvider implements LlmProvider {
  *
  * Resolution order:
  *  1. llmProvider option set → use directly
- *  2. flowModel starts with 'ollama:' → OllamaProvider
- *  3. flowModel set (any other string) → GeminiProvider (legacy compat)
- *  4. claude CLI in PATH and STF_DISABLE_CLAUDE_CLI unset → ClaudeCliProvider (new default)
- *  5. ANTHROPIC_API_KEY set → ClaudeSdkProvider
- *  6. OPENAI_API_KEY set → OpenAIProvider
- *  7. GEMINI_API_KEY set → GeminiProvider
- *  8. None → undefined (caller should skip generation)
+ *  2. LISA_LLM_PROVIDER env var → AgentLoopProvider (wraps ToolCallingLlmProvider + McpClient)
+ *  3. flowModel starts with 'ollama:' → OllamaProvider
+ *  4. flowModel set (any other string) → GeminiProvider (legacy compat)
+ *  5. claude CLI in PATH and STF_DISABLE_CLAUDE_CLI unset → ClaudeCliProvider (new default)
+ *  6. ANTHROPIC_API_KEY set → ClaudeSdkProvider
+ *  7. OPENAI_API_KEY set → OpenAIProvider
+ *  8. GEMINI_API_KEY set → GeminiProvider
+ *  9. None → undefined (caller should skip generation)
  *
- * Set STF_DISABLE_CLAUDE_CLI=1 to skip step 4 in CI environments where the
+ * Pass iterRoot to get a correctly scoped LISA_MEMORY_DIR for the agentic loop.
+ * Set STF_DISABLE_CLAUDE_CLI=1 to skip step 5 in CI environments where the
  * claude CLI is installed but you want API-key-based providers instead.
  */
 export function resolveProvider(
   flowModel: string | undefined,
   llmProvider: LlmProvider | undefined,
+  { iterRoot }: { iterRoot?: string } = {},
 ): LlmProvider | undefined {
   // 1. Explicit provider wins
   if (llmProvider) return llmProvider;
 
-  // 2. ollama: prefix
+  // 2. LISA_LLM_PROVIDER → AgentLoopProvider (tool-calling agentic loop via lisa-mcp)
+  const toolProvider = resolveToolCallingProvider();
+  if (toolProvider) {
+    const memoryDir = iterRoot
+      ? path.join(iterRoot, '.lisa_memory')
+      : path.join(process.cwd(), '.stf', '.lisa_memory');
+    return new AgentLoopProvider(toolProvider, () => new McpClient({ memoryDir }));
+  }
+
+  // 3. ollama: prefix
   if (flowModel?.startsWith('ollama:')) {
     return new OllamaProvider({ model: flowModel.slice(7) });
   }
 
-  // 3. Any other flowModel string → Gemini (legacy)
+  // 4. Any other flowModel string → Gemini (legacy)
   if (flowModel) {
     return new GeminiProvider({ model: flowModel });
   }
 
-  // 4. Claude CLI auto-detection
+  // 5. Claude CLI auto-detection
   if (!process.env['STF_DISABLE_CLAUDE_CLI'] && claudeCliAvailable()) {
     return new ClaudeCliProvider();
   }
 
-  // 5. Anthropic SDK
+  // 6. Anthropic SDK
   if (process.env['ANTHROPIC_API_KEY']) {
     return new ClaudeSdkProvider();
   }
 
-  // 6. OpenAI
+  // 7. OpenAI
   if (process.env['OPENAI_API_KEY']) {
     return new OpenAIProvider();
   }
 
-  // 7. Gemini
+  // 8. Gemini
   if (process.env['GEMINI_API_KEY']) {
     return new GeminiProvider();
   }
 
-  // 8. Nothing configured
+  // 9. Nothing configured
   return undefined;
 }
