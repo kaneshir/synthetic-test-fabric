@@ -1,6 +1,10 @@
+import * as os from 'os';
+import * as path from 'path';
+import * as fs from 'fs';
 import { AgentLoopProvider } from './agent-loop';
+import { McpClient } from './mcp-client';
 import type { ToolCallingLlmProvider, ChatResponse, Message, ToolDefinition } from './llm-providers/types';
-import type { McpClient, McpTool } from './mcp-client';
+import type { McpTool } from './mcp-client';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -242,4 +246,75 @@ describe('resolveProvider() with LISA_LLM_PROVIDER', () => {
       expect(provider).not.toBeInstanceOf(AgentLoopProvider);
     }
   });
+});
+
+// ---------------------------------------------------------------------------
+// Integration: real McpClient binary + mock ToolCallingLlmProvider
+// ---------------------------------------------------------------------------
+
+describe('AgentLoopProvider — integration (real McpClient)', () => {
+  let memoryDir: string;
+
+  beforeEach(() => {
+    memoryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'stf-agent-loop-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(memoryDir, { recursive: true, force: true });
+  });
+
+  it(
+    'spawns lisa-mcp binary, calls lisa_health, returns final text',
+    async () => {
+      const client = new McpClient({ memoryDir });
+
+      // Mock provider: first turn calls lisa_health, second returns text
+      let turn = 0;
+      const toolProvider: ToolCallingLlmProvider = {
+        id: 'mock-integration',
+        chat: jest.fn().mockImplementation(async ({ tools }: { tools: ToolDefinition[]; messages: Message[] }) => {
+          turn++;
+          if (turn === 1) {
+            // Verify real tools arrived from binary
+            const health = tools.find(t => t.name === 'lisa_health');
+            expect(health).toBeDefined();
+            return {
+              toolCalls: [{ id: 'int-1', name: 'lisa_health', args: {} }],
+            } as ChatResponse;
+          }
+          return { content: 'integration passed' } as ChatResponse;
+        }),
+      };
+
+      const loop = new AgentLoopProvider(toolProvider, client);
+      const result = await loop.complete('check health');
+
+      expect(result).toBe('integration passed');
+      expect(turn).toBe(2);
+
+      const chatMock = toolProvider.chat as jest.Mock;
+      // Second chat call should carry the tool result from lisa_health
+      const secondMessages: Message[] = chatMock.mock.calls[1][0].messages;
+      const toolResultTurn = secondMessages.find(m => m.toolResults);
+      expect(toolResultTurn).toBeDefined();
+      expect(toolResultTurn!.toolResults![0].toolCallId).toBe('int-1');
+    },
+    15_000, // binary cold start can be slow
+  );
+
+  it(
+    'closes the binary process in finally when provider throws',
+    async () => {
+      const client = new McpClient({ memoryDir });
+      const toolProvider: ToolCallingLlmProvider = {
+        id: 'mock-error',
+        chat: jest.fn().mockRejectedValue(new Error('provider down')),
+      };
+      const loop = new AgentLoopProvider(toolProvider, client);
+      await expect(loop.complete('fail')).rejects.toThrow('provider down');
+      // If close() wasn't called, the process would linger and the test would
+      // hang — Jest's open-handles detection catches this.
+    },
+    15_000,
+  );
 });
