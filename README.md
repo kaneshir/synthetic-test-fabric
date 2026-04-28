@@ -160,20 +160,33 @@ The score drives the next iteration — low `novelty` steers the planner toward 
 | **HTML trend report** | `HtmlReporter` generates a self-contained report with Chart.js trend across the last 30 iterations |
 | **Headless HTTP** | `ApiExecutor` records behavior events without a browser — 80× faster than Playwright for simulation |
 | **LLM element inference** | `@kaneshir/lisa-mcp` peer gives BrowserAdapter AI-driven key discovery via the Lisa MCP server |
+| **LLM-agnostic flow generation** | `LISA_LLM_PROVIDER=anthropic\|openai\|gemini` swaps the GENERATE_FLOWS LLM without code changes |
 
 ---
 
 ## How it relates to `@kaneshir/lisa-mcp`
 
-`@kaneshir/lisa-mcp` is an optional peer package that ships a precompiled Lisa MCP server binary. It enables the LLM-driven element inference path in the GENERATE_FLOWS step — the Lisa MCP server navigates your live app, discovers interactive elements by their stable identifiers, and produces Playwright locators without hand-labeling selectors. It works with any web app; see [docs/lisa-mcp.md](docs/lisa-mcp.md) for the full integration guide.
+`@kaneshir/lisa-mcp` is an optional peer package that ships a precompiled Lisa MCP server binary. It has two integration paths:
 
-Without it: your `BrowserAdapter` supplies its own selectors (data-testid, hard-coded, etc.) — fully supported.
+**Path 1 — BrowserAdapter element inference (original)**
+Your `BrowserAdapter.runSpecs()` calls `buildLisaMcpCommand()`, spawns the MCP server, and lets an LLM use `lisa_explore_screen` / `lisa_tap_key` tools to discover interactive elements and generate Playwright spec steps from actual observations.
 
-With it: your `BrowserAdapter.runSpecs()` implementation can call `buildLisaMcpCommand()` to get the binary path, spawn the MCP server, and let an LLM use `lisa_explore_screen` / `lisa_tap_key` tools to navigate the live app and generate spec steps from actual observations before executing them.
+**Path 2 — Agentic loop via `LISA_LLM_PROVIDER` (v0.3.0+)**
+Set `LISA_LLM_PROVIDER=anthropic|openai|gemini` and the framework automatically spawns the binary as an `AgentLoopProvider`. The LLM drives a full multi-turn tool-call loop — no custom `BrowserAdapter` wiring needed. The binary's tool list is fetched at runtime; tool calls are dispatched back via MCP `tools/call`.
 
 ```bash
-npm install @kaneshir/lisa-mcp
+# Zero-config agentic loop with OpenAI
+npm install @kaneshir/lisa-mcp openai
+LISA_LLM_PROVIDER=openai OPENAI_API_KEY=sk-... npx fab orchestrate
+
+# Or Anthropic
+npm install @kaneshir/lisa-mcp @anthropic-ai/sdk
+LISA_LLM_PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-... npx fab orchestrate
 ```
+
+Without `@kaneshir/lisa-mcp`: your `BrowserAdapter` supplies its own selectors — fully supported. `LISA_LLM_PROVIDER` requires it.
+
+See [docs/lisa-mcp.md](docs/lisa-mcp.md) and [docs/env-vars.md](docs/env-vars.md) for full integration details.
 
 ---
 

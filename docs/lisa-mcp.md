@@ -257,6 +257,53 @@ The TEST phase does not change. lisa-mcp only touches GENERATE_FLOWS.
 
 ---
 
+## LLM-agnostic agentic loop (v0.3.0+)
+
+Setting `LISA_LLM_PROVIDER` activates a second integration mode that requires
+no custom `BrowserAdapter` wiring. The framework spawns the binary itself and
+drives it via a multi-turn tool-call loop:
+
+```
+GENERATE_FLOWS with LISA_LLM_PROVIDER=openai:
+  1. resolveProvider() creates AgentLoopProvider(OpenAIToolCallingProvider, mcpClientFactory)
+  2. For each prompt in candidate_flows.yaml:
+     a. mcpClientFactory() spawns the lisa-mcp binary fresh
+     b. tools/list → tool definitions sent to OpenAI with the prompt
+     c. LLM returns tool_calls → dispatched via tools/call to the binary
+     d. Tool results injected back → loop continues until text response
+     e. Binary process closed
+  3. Text response written as the generated spec
+```
+
+**When to use which mode:**
+
+| Mode | How | Best for |
+|------|-----|----------|
+| BrowserAdapter wiring | Call `buildLisaMcpCommand()` in your adapter | Full control over prompt construction and spec format |
+| `LISA_LLM_PROVIDER` | Set env var, install SDK peer | Zero-config; any LLM; no adapter code required |
+
+The two modes are independent. You can use both simultaneously — `LISA_LLM_PROVIDER` controls the LLM for the top-level agentic loop; your adapter's internal MCP calls are unaffected.
+
+**Required packages for `LISA_LLM_PROVIDER`:**
+
+```bash
+# Anthropic
+npm install @kaneshir/lisa-mcp @anthropic-ai/sdk
+LISA_LLM_PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-...
+
+# OpenAI
+npm install @kaneshir/lisa-mcp openai
+LISA_LLM_PROVIDER=openai OPENAI_API_KEY=sk-...
+
+# Gemini
+npm install @kaneshir/lisa-mcp @google/generative-ai
+LISA_LLM_PROVIDER=gemini GEMINI_API_KEY=...
+```
+
+See [docs/env-vars.md](env-vars.md) for the full resolution order.
+
+---
+
 ## Troubleshooting
 
 **`Error: unsupported platform: win32`**
