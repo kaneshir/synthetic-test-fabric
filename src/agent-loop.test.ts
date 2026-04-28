@@ -45,7 +45,7 @@ describe('AgentLoopProvider', () => {
   it('returns text response when no tool calls', async () => {
     const client = makeMcpClient();
     const provider = makeChatProvider([{ content: 'all good' }]);
-    const loop = new AgentLoopProvider(provider, client);
+    const loop = new AgentLoopProvider(provider, () => client);
     const result = await loop.complete('check health');
     expect(result).toBe('all good');
   });
@@ -53,8 +53,68 @@ describe('AgentLoopProvider', () => {
   it('has id prefixed with agent-loop:', () => {
     const client = makeMcpClient();
     const provider = { id: 'anthropic-tool:claude-sonnet-4-6', chat: jest.fn() } as unknown as ToolCallingLlmProvider;
-    const loop = new AgentLoopProvider(provider, client);
+    const loop = new AgentLoopProvider(provider, () => client);
     expect(loop.id).toBe('agent-loop:anthropic-tool:claude-sonnet-4-6');
+  });
+
+  it('passes options (temperature, maxTokens) through to chat()', async () => {
+    const client = makeMcpClient();
+    const provider = makeChatProvider([{ content: 'ok' }]);
+    const loop = new AgentLoopProvider(provider, () => client);
+    await loop.complete('go', { temperature: 0.2, maxTokens: 512 });
+    const chatMock = provider.chat as jest.Mock;
+    expect(chatMock.mock.calls[0][0].options).toEqual({ temperature: 0.2, maxTokens: 512 });
+  });
+
+  it('creates a fresh McpClient per complete() call — no shared state', async () => {
+    const clients: ReturnType<typeof makeMcpClient>[] = [];
+    const factory = () => {
+      const c = makeMcpClient();
+      clients.push(c);
+      return c;
+    };
+    const provider = makeChatProvider([{ content: 'done' }]);
+    const loop = new AgentLoopProvider(provider, factory);
+
+    // Two sequential calls — each must get its own client and close it
+    await loop.complete('first');
+    await loop.complete('second');
+
+    expect(clients).toHaveLength(2);
+    expect(clients[0]).not.toBe(clients[1]);
+    expect(clients[0].close).toHaveBeenCalledTimes(1);
+    expect(clients[1].close).toHaveBeenCalledTimes(1);
+  });
+
+  it('concurrent complete() calls each get an independent client', async () => {
+    const clients: ReturnType<typeof makeMcpClient>[] = [];
+    const factory = () => {
+      const c = makeMcpClient();
+      clients.push(c);
+      return c;
+    };
+    const provider = makeChatProvider([{ content: 'done' }]);
+    const loop = new AgentLoopProvider(provider, factory);
+
+    await Promise.all([loop.complete('a'), loop.complete('b')]);
+
+    expect(clients).toHaveLength(2);
+    expect(clients[0]).not.toBe(clients[1]);
+    for (const c of clients) {
+      expect(c.spawn).toHaveBeenCalledTimes(1);
+      expect(c.close).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('calls close() in finally when spawn() rejects', async () => {
+    const close = jest.fn();
+    const spawn = jest.fn().mockRejectedValue(new Error('binary not found'));
+    const client = makeMcpClient({ spawn, close });
+    const provider = makeChatProvider([{ content: 'ok' }]);
+    const loop = new AgentLoopProvider(provider, () => client);
+
+    await expect(loop.complete('go')).rejects.toThrow('binary not found');
+    expect(close).toHaveBeenCalledTimes(1);
   });
 
   it('happy path: tool call → result injected → final response', async () => {
@@ -64,7 +124,7 @@ describe('AgentLoopProvider', () => {
       { toolCalls: [{ id: 'tc-1', name: 'lisa_health', args: {} }] },
       { content: 'done' },
     ]);
-    const loop = new AgentLoopProvider(provider, client);
+    const loop = new AgentLoopProvider(provider, () => client);
     const result = await loop.complete('run health check');
 
     expect(result).toBe('done');
@@ -87,7 +147,7 @@ describe('AgentLoopProvider', () => {
       { toolCalls: [{ id: 'tc-2', name: 'lisa_health', args: {} }] },
       { content: 'all flows passed' },
     ]);
-    const loop = new AgentLoopProvider(provider, client);
+    const loop = new AgentLoopProvider(provider, () => client);
     const result = await loop.complete('test the app');
 
     expect(result).toBe('all flows passed');
@@ -108,7 +168,7 @@ describe('AgentLoopProvider', () => {
           : { toolCalls: [{ id: `tc-${turn}`, name: 'lisa_health', args: {} }] };
       }),
     };
-    const loop = new AgentLoopProvider(provider, client, { maxIterations: 3 });
+    const loop = new AgentLoopProvider(provider, () => client, { maxIterations: 3 });
     const result = await loop.complete('run');
 
     expect(result).toBe('partial');
@@ -122,7 +182,7 @@ describe('AgentLoopProvider', () => {
       { toolCalls: [{ id: 'tc-err', name: 'lisa_health', args: {} }] },
       { content: 'recovered' },
     ]);
-    const loop = new AgentLoopProvider(provider, client);
+    const loop = new AgentLoopProvider(provider, () => client);
     const result = await loop.complete('check');
 
     expect(result).toBe('recovered');
@@ -139,7 +199,7 @@ describe('AgentLoopProvider', () => {
       id: 'mock',
       chat: jest.fn().mockRejectedValue(new Error('LLM unavailable')),
     };
-    const loop = new AgentLoopProvider(provider, client);
+    const loop = new AgentLoopProvider(provider, () => client);
     await expect(loop.complete('check')).rejects.toThrow('LLM unavailable');
     expect(close).toHaveBeenCalledTimes(1);
   });
@@ -148,7 +208,7 @@ describe('AgentLoopProvider', () => {
     const close = jest.fn();
     const client = makeMcpClient({ close });
     const provider = makeChatProvider([{ content: 'ok' }]);
-    const loop = new AgentLoopProvider(provider, client);
+    const loop = new AgentLoopProvider(provider, () => client);
     await loop.complete('ping');
     expect(close).toHaveBeenCalledTimes(1);
   });
@@ -156,7 +216,7 @@ describe('AgentLoopProvider', () => {
   it('passes tool definitions to chat() derived from getTools()', async () => {
     const client = makeMcpClient();
     const provider = makeChatProvider([{ content: 'done' }]);
-    const loop = new AgentLoopProvider(provider, client);
+    const loop = new AgentLoopProvider(provider, () => client);
     await loop.complete('go');
 
     const chatMock = provider.chat as jest.Mock;
@@ -179,7 +239,7 @@ describe('AgentLoopProvider', () => {
       { toolCalls: [{ id: 'tc-1', name: 'lisa_health', args: {} }] },
       { content: 'ok' },
     ]);
-    const loop = new AgentLoopProvider(provider, client);
+    const loop = new AgentLoopProvider(provider, () => client);
     await loop.complete('go');
 
     const chatMock = provider.chat as jest.Mock;
@@ -266,8 +326,6 @@ describe('AgentLoopProvider — integration (real McpClient)', () => {
   it(
     'spawns lisa-mcp binary, calls lisa_health, returns final text',
     async () => {
-      const client = new McpClient({ memoryDir });
-
       // Mock provider: first turn calls lisa_health, second returns text
       let turn = 0;
       const toolProvider: ToolCallingLlmProvider = {
@@ -286,7 +344,7 @@ describe('AgentLoopProvider — integration (real McpClient)', () => {
         }),
       };
 
-      const loop = new AgentLoopProvider(toolProvider, client);
+      const loop = new AgentLoopProvider(toolProvider, () => new McpClient({ memoryDir }));
       const result = await loop.complete('check health');
 
       expect(result).toBe('integration passed');
@@ -305,12 +363,11 @@ describe('AgentLoopProvider — integration (real McpClient)', () => {
   it(
     'closes the binary process in finally when provider throws',
     async () => {
-      const client = new McpClient({ memoryDir });
       const toolProvider: ToolCallingLlmProvider = {
         id: 'mock-error',
         chat: jest.fn().mockRejectedValue(new Error('provider down')),
       };
-      const loop = new AgentLoopProvider(toolProvider, client);
+      const loop = new AgentLoopProvider(toolProvider, () => new McpClient({ memoryDir }));
       await expect(loop.complete('fail')).rejects.toThrow('provider down');
       // If close() wasn't called, the process would linger and the test would
       // hang — Jest's open-handles detection catches this.

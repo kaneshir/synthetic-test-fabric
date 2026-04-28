@@ -5,25 +5,31 @@ import type { McpClient, McpTool } from './mcp-client';
 export class AgentLoopProvider implements LlmProvider {
   readonly id: string;
   private readonly toolProvider: ToolCallingLlmProvider;
-  private readonly mcpClient: McpClient;
+  private readonly mcpClientFactory: () => McpClient;
   private readonly maxIterations: number;
 
   constructor(
     toolProvider: ToolCallingLlmProvider,
-    mcpClient: McpClient,
+    mcpClientFactory: () => McpClient,
     { maxIterations = 10 }: { maxIterations?: number } = {},
   ) {
     this.toolProvider = toolProvider;
-    this.mcpClient = mcpClient;
+    this.mcpClientFactory = mcpClientFactory;
     this.maxIterations = maxIterations;
     this.id = `agent-loop:${toolProvider.id}`;
   }
 
-  async complete(prompt: string): Promise<string> {
-    await this.mcpClient.spawn();
-
+  async complete(
+    prompt: string,
+    options?: { temperature?: number; maxTokens?: number },
+  ): Promise<string> {
+    // Fresh client per call — each complete() owns its own process, buffer, and pending map.
+    const client = this.mcpClientFactory();
     try {
-      const mcpTools: McpTool[] = await this.mcpClient.getTools();
+      // spawn() is inside try so close() is called even if the initialize handshake fails.
+      await client.spawn();
+
+      const mcpTools: McpTool[] = await client.getTools();
       const tools: ToolDefinition[] = mcpTools.map(t => ({
         name: t.name,
         description: t.description,
@@ -34,7 +40,7 @@ export class AgentLoopProvider implements LlmProvider {
       let lastText = '';
 
       for (let i = 0; i < this.maxIterations; i++) {
-        const response = await this.toolProvider.chat({ messages, tools });
+        const response = await this.toolProvider.chat({ messages, tools, options });
 
         if (!response.toolCalls || response.toolCalls.length === 0) {
           return response.content ?? lastText;
@@ -47,7 +53,7 @@ export class AgentLoopProvider implements LlmProvider {
         for (const tc of response.toolCalls) {
           let content: string;
           try {
-            const result = await this.mcpClient.callTool(
+            const result = await client.callTool(
               tc.name,
               tc.args as Record<string, unknown>,
             );
@@ -66,7 +72,7 @@ export class AgentLoopProvider implements LlmProvider {
 
       return lastText || '[agent-loop: maxIterations reached without text response]';
     } finally {
-      this.mcpClient.close();
+      client.close();
     }
   }
 }

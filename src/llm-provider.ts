@@ -272,7 +272,7 @@ export function resolveProvider(
     const memoryDir = iterRoot
       ? path.join(iterRoot, '.lisa_memory')
       : path.join(process.cwd(), '.stf', '.lisa_memory');
-    return new AgentLoopProvider(toolProvider, new McpClient({ memoryDir }));
+    return new AgentLoopProvider(toolProvider, () => new McpClient({ memoryDir }));
   }
 
   // 3. ollama: prefix
