@@ -56,6 +56,9 @@ beforeEach(() => {
   jest.clearAllMocks();
   // Default: claude CLI not available (tests that need it override per-test)
   mockExecFileSync.mockImplementation(() => { throw new Error('not found'); });
+  // Guard: a locally-set LISA_LLM_PROVIDER would cause resolveProvider() to return
+  // an AgentLoopProvider, breaking tests that expect ClaudeSdkProvider etc.
+  delete process.env['LISA_LLM_PROVIDER'];
 });
 
 // ---------------------------------------------------------------------------

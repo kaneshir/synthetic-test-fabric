@@ -259,7 +259,7 @@ export class FabricOrchestrator {
         this.log('[orchestrate] GENERATE_FLOWS: no candidate_flows.yaml — nothing to generate');
         return;
       }
-      const provider = resolveProvider(flowModel, llmProvider);
+      const provider = resolveProvider(flowModel, llmProvider, { iterRoot: iterPaths.iterRoot });
       if (!provider) {
         this.log(
           '[orchestrate] GENERATE_FLOWS: no LLM provider configured — skipping. ' +

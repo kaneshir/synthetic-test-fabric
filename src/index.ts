@@ -59,6 +59,7 @@ export type {
 export { FabricOrchestrator } from './orchestrator';
 export type { OrchestratorOptions, OrchestratorAdapters } from './orchestrator';
 export type { LlmProvider } from './llm-provider';
+export { AgentLoopProvider } from './agent-loop';
 export {
   ClaudeCliProvider,
   ClaudeSdkProvider,
