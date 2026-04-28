@@ -11,6 +11,46 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.3.0] — 2026-04-28
+
+### Added
+
+- **`ToolCallingLlmProvider` interface** — `{ id; chat({ messages, tools, options? }) }` with
+  canonical `ToolDefinition`, `ToolCall`, `ToolResult`, `Message`, `ChatResponse` types.
+  Adapters convert between the neutral wire format and provider-native shapes.
+- **`AnthropicToolCallingProvider`** — `input_schema` tool format, `tool_use` block parsing,
+  `tool_result` second-turn serialization.
+- **`OpenAIToolCallingProvider`** — `type:function` wrapper, `tool_calls` parsing, null-content
+  handling, `role:tool` second-turn serialization.
+- **`GeminiToolCallingProvider`** — camelCase `functionDeclarations`, `functionCall` part
+  parsing, positional call IDs (`gemini-call-N`), `functionResponse` second-turn.
+  `functionResponse.name` is resolved from the preceding assistant turn so Gemini can
+  correlate the response to the declared function (bug fix — emitting the synthetic ID
+  would silently break the second turn).
+- **`AgentLoopProvider`** — implements `LlmProvider` via a full agentic tool-call loop:
+  spawns the `@kaneshir/lisa-mcp` binary via `McpClient`, fetches tools, drives
+  `ToolCallingLlmProvider.chat()` ↔ `McpClient.callTool()` until a text response or
+  `maxIterations` (default 10). Each `complete()` call creates a fresh client from the
+  injected factory so concurrent and sequential calls never share process state. `spawn()`
+  is inside the `try` block so `close()` is always called in `finally` even if the MCP
+  initialize handshake fails. Tool errors are injected as `Error: …` result strings — the
+  loop continues rather than crashing.
+- **`resolveProvider()` updated** — new step 2: `LISA_LLM_PROVIDER` env var instantiates
+  the matching `ToolCallingLlmProvider` and wraps it in `AgentLoopProvider` with a
+  `McpClient` scoped to `iterRoot/.lisa_memory`. Accepts a new optional `{ iterRoot }`
+  third parameter. All existing resolution steps (Claude CLI default, API-key fallbacks)
+  are unchanged when `LISA_LLM_PROVIDER` is unset.
+- `AgentLoopProvider` exported from the package root.
+- All three `ToolCallingLlmProvider` adapters exported from the package root.
+
+### Fixed
+
+- **Gemini second-turn `functionResponse.name`** was emitting the synthetic positional ID
+  (`gemini-call-0`) instead of the original function name (`lisa_health`). Gemini matches
+  responses by function name, so this broke every multi-turn Gemini tool loop silently.
+
+---
+
 ## [0.2.0] — 2026-04-27
 
 ### Breaking changes
