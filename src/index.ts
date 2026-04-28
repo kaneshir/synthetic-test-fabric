@@ -1,3 +1,5 @@
+export { McpClient, createMcpClient } from './mcp-client';
+export type { McpClientOptions, McpTool, McpCallResult } from './mcp-client';
 export { normalizeScreenPath } from './screen-path';
 export type { SyntheticConfig } from './config';
 export { loadSyntheticConfig } from './config';
