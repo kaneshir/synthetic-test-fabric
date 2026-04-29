@@ -190,9 +190,8 @@ regression suite. See `docs/env-vars.md` for how to configure each provider.
 
 **`LISA_LLM_PROVIDER` and `resolveProvider()`**
 
-`resolveProvider()` is the internal function that implements the full 9-step
-resolution order. It runs _before_ the priority table above, so `LISA_LLM_PROVIDER`
-takes precedence over all other detection:
+`resolveProvider()` is the internal function that runs the full resolution order.
+`LISA_LLM_PROVIDER` takes precedence over all env-var auto-detection:
 
 | Step | Condition | Result |
 |------|-----------|--------|
@@ -203,12 +202,15 @@ takes precedence over all other detection:
 | 5 | `flowModel` matches `'ollama:<model>'` | `OllamaProvider` |
 | 6 | `flowModel` is any other string | `GeminiProvider({ model: flowModel })` |
 | 7 | `claude` CLI in PATH and `STF_DISABLE_CLAUDE_CLI` unset | `ClaudeCliProvider` |
-| 8 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` set | matching SDK provider |
-| 9 | nothing | `undefined` — GENERATE_FLOWS skipped |
+| 8 | `ANTHROPIC_API_KEY` set | `ClaudeSdkProvider` |
+| 9 | `OPENAI_API_KEY` set | `OpenAIProvider` |
+| 10 | `GEMINI_API_KEY` set | `GeminiProvider` |
+| — | nothing | `undefined` — GENERATE_FLOWS skipped |
 
-`AgentLoopProvider` requires `@kaneshir/lisa-mcp` to be installed. It spawns a
-fresh MCP binary per `complete()` call and runs a multi-turn tool-call loop
-(`tools/list` → dispatch → `tools/call`) until the LLM returns a text response.
+Steps 8–10 are checked in order — if multiple keys are set, Anthropic wins.
+`AgentLoopProvider` requires `@kaneshir/lisa-mcp`. It spawns a fresh MCP binary
+per `complete()` call and runs a multi-turn tool-call loop (`tools/list` →
+dispatch → `tools/call`) until the LLM returns a text response.
 
 ---
 
