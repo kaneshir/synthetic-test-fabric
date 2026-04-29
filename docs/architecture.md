@@ -493,8 +493,8 @@ The provider has no knowledge of the MCP binary. It receives a fully-formed text
 **Seam 2 — the MCP binary** is the MCP stdio JSON-RPC protocol plus the tool name contracts (`lisa_explore`, `lisa_action`, `lisa_get_seeded`, etc.). The framework calls `tools/list` to discover what the server offers, then `tools/call` to invoke them. What's inside the binary is opaque — the framework depends on the protocol and the tool schemas, not the implementation.
 
 Swap the binary by:
-- pointing `buildLisaMcpCommand()` at a different executable
-- passing `command: { cmd, args }` to `McpClient` directly
+- passing `command: { cmd, args }` to `McpClient` (or `createMcpClient`) directly
+- supplying a custom `mcpClientFactory` to `AgentLoopProvider` that spawns any MCP-compatible process
 
 The binary has no knowledge of which LLM is on the other side.
 
@@ -502,7 +502,7 @@ The binary has no knowledge of which LLM is on the other side.
 
 This is what makes the architecture extensible without being a framework: the product's adapter implementations are stable across LLM generations and across QA intelligence versions. The loop doesn't change. The scoring doesn't change. Only the two swap points need updating when a better model ships or the MCP intelligence improves.
 
-## 15. Dependency Map
+## 14. Dependency Map
 
 ```
 synthetic-test-fabric (this package)
@@ -534,7 +534,7 @@ subprocess compatibility but is not the MCP server's contract.)
 
 ---
 
-## 16. What the Framework Does Not Own
+## 15. What the Framework Does Not Own
 
 - The product's simulation engine (how synthetic users are created and seeded)
 - The product's fixture alias conventions
@@ -548,7 +548,7 @@ implementations.
 
 ---
 
-## 17. Reference
+## 16. Reference
 
 | File | What it defines |
 |------|----------------|
