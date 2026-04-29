@@ -188,6 +188,30 @@ When `flowModel` is omitted, the framework auto-detects a provider in this order
 If GENERATE_FLOWS is skipped, the TEST phase will still run the existing
 regression suite. See `docs/env-vars.md` for how to configure each provider.
 
+**`LISA_LLM_PROVIDER` and `resolveProvider()`**
+
+`resolveProvider()` is the internal function that runs the full resolution order.
+`LISA_LLM_PROVIDER` takes precedence over all env-var auto-detection:
+
+| Step | Condition | Result |
+|------|-----------|--------|
+| 1 | `llmProvider` option is set | use it directly |
+| 2 | `LISA_LLM_PROVIDER=anthropic` + `@kaneshir/lisa-mcp` installed | `AgentLoopProvider(AnthropicToolCallingProvider, mcpClientFactory)` |
+| 3 | `LISA_LLM_PROVIDER=openai` + `@kaneshir/lisa-mcp` installed | `AgentLoopProvider(OpenAIToolCallingProvider, mcpClientFactory)` |
+| 4 | `LISA_LLM_PROVIDER=gemini` + `@kaneshir/lisa-mcp` installed | `AgentLoopProvider(GeminiToolCallingProvider, mcpClientFactory)` |
+| 5 | `flowModel` matches `'ollama:<model>'` | `OllamaProvider` |
+| 6 | `flowModel` is any other string | `GeminiProvider({ model: flowModel })` |
+| 7 | `claude` CLI in PATH and `STF_DISABLE_CLAUDE_CLI` unset | `ClaudeCliProvider` |
+| 8 | `ANTHROPIC_API_KEY` set | `ClaudeSdkProvider` |
+| 9 | `OPENAI_API_KEY` set | `OpenAIProvider` |
+| 10 | `GEMINI_API_KEY` set | `GeminiProvider` |
+| — | nothing | `undefined` — GENERATE_FLOWS skipped |
+
+Steps 8–10 are checked in order — if multiple keys are set, Anthropic wins.
+`AgentLoopProvider` requires `@kaneshir/lisa-mcp`. It spawns a fresh MCP binary
+per `complete()` call and runs a multi-turn tool-call loop (`tools/list` →
+dispatch → `tools/call`) until the LLM returns a text response.
+
 ---
 
 ### `dbUrl` — `string` (optional)

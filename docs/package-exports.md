@@ -67,6 +67,45 @@ Activated by `LISA_LLM_PROVIDER`. Requires `@kaneshir/lisa-mcp`.
 
 ---
 
+## MCP client
+
+Used internally by `AgentLoopProvider`. Exported for consumers who need to
+spawn and communicate with an MCP server directly (e.g. from a custom
+`BrowserAdapter`).
+
+| Export | Kind | Description |
+|--------|------|-------------|
+| `McpClient` | class | Spawns an MCP server binary over stdio and communicates via JSON-RPC. Call `await spawn()` before using `getTools()` or `callTool(name, args)`. Call `close()` when done to kill the child process. |
+| `createMcpClient` | function | `(iterRoot: string, opts?: Omit<McpClientOptions, 'memoryDir'>) => McpClient`. Convenience factory — derives `memoryDir` as `<iterRoot>/.lisa_memory`. |
+| `McpClientOptions` | type | `{ memoryDir: string; appUrl?: string; command?: { cmd: string; args: string[] }; timeoutMs?: number }`. `command` overrides the default binary; omit to use `@kaneshir/lisa-mcp` auto-detection. |
+| `McpTool` | type | `{ name: string; description: string; inputSchema: Record<string, unknown> }` — one entry from `tools/list`. |
+| `McpCallResult` | type | `{ content: Array<{ type: string; text?: string }>; isError?: boolean }` — response from `tools/call`. |
+
+**Example — call lisa-mcp directly from a BrowserAdapter:**
+
+```typescript
+import { createMcpClient } from 'synthetic-test-fabric';
+import { buildLisaMcpCommand } from '@kaneshir/lisa-mcp';
+
+const { cmd, args } = buildLisaMcpCommand();
+// createMcpClient derives memoryDir from iterRoot + '/.lisa_memory'
+const client = createMcpClient(iterRoot, {
+  appUrl: 'http://localhost:5002',
+  command: { cmd, args },
+});
+
+await client.spawn(); // must call before getTools() / callTool()
+try {
+  const tools = await client.getTools();
+  const result = await client.callTool('lisa_health', {});
+  console.log(result.content[0]?.text); // '{"status":"ok"}'
+} finally {
+  client.close();
+}
+```
+
+---
+
 ## Adapter interfaces
 
 | Export | Kind | Description |
