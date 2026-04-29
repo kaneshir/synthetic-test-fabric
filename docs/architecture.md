@@ -458,7 +458,51 @@ Install it only when you want LLM-driven key inference or interactive recording.
 
 ---
 
-## 13. Dependency Map
+## 13. Two Independent Swap Axes
+
+The stack has two orthogonal abstraction seams. They were designed this way deliberately — neither is an afterthought.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                   synthetic-test-fabric                          │
+│                                                                  │
+│  GENERATE_FLOWS                                                  │
+│    │                                                             │
+│    ├── Seam 1: LlmProvider ──────────────────────────────────── │─── swap the brain
+│    │     ClaudeCliProvider (default, zero-config)                │
+│    │     ClaudeSdkProvider (ANTHROPIC_API_KEY)                   │
+│    │     OpenAIProvider (OPENAI_API_KEY)                         │
+│    │     GeminiProvider (GEMINI_API_KEY)                         │
+│    │     AgentLoopProvider (LISA_LLM_PROVIDER + lisa-mcp)        │
+│    │     custom: { id, complete(prompt) }                        │
+│    │                                                             │
+│    └── Seam 2: MCP binary ───────────────────────────────────── │─── swap the tools
+│          @kaneshir/lisa-mcp (default)                            │
+│          any binary: MCP stdio JSON-RPC + same tool contracts    │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Seam 1 — the LLM provider** is the `LlmProvider` interface: `id: string` plus `complete(prompt): Promise<string>`. The framework calls nothing else. Switch providers by:
+- setting `LISA_LLM_PROVIDER` (zero code change)
+- passing `llmProvider` to `OrchestratorOptions` (one line change)
+- implementing `{ id, complete }` to wrap any model
+
+The provider has no knowledge of the MCP binary. It receives a fully-formed text prompt and returns a string.
+
+**Seam 2 — the MCP binary** is the MCP stdio JSON-RPC protocol plus the tool name contracts (`lisa_explore`, `lisa_action`, `lisa_get_seeded`, etc.). The framework calls `tools/list` to discover what the server offers, then `tools/call` to invoke them. What's inside the binary is opaque — the framework depends on the protocol and the tool schemas, not the implementation.
+
+Swap the binary by:
+- pointing `buildLisaMcpCommand()` at a different executable
+- passing `command: { cmd, args }` to `McpClient` directly
+
+The binary has no knowledge of which LLM is on the other side.
+
+**The two seams are independent.** You can run `LISA_LLM_PROVIDER=openai` against the default lisa-mcp binary. You can run a different MCP binary with the default `ClaudeCliProvider`. You can swap both simultaneously. Neither swap requires touching the other layer or any adapter code.
+
+This is what makes the architecture extensible without being a framework: the product's adapter implementations are stable across LLM generations and across QA intelligence versions. The loop doesn't change. The scoring doesn't change. Only the two swap points need updating when a better model ships or the MCP intelligence improves.
+
+## 15. Dependency Map
 
 ```
 synthetic-test-fabric (this package)
@@ -490,7 +534,7 @@ subprocess compatibility but is not the MCP server's contract.)
 
 ---
 
-## 14. What the Framework Does Not Own
+## 16. What the Framework Does Not Own
 
 - The product's simulation engine (how synthetic users are created and seeded)
 - The product's fixture alias conventions
@@ -504,7 +548,7 @@ implementations.
 
 ---
 
-## 15. Reference
+## 17. Reference
 
 | File | What it defines |
 |------|----------------|
