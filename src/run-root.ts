@@ -30,6 +30,103 @@ export function makeLoopId(): string {
   return `fabric-loop-${Date.now()}`;
 }
 
+// ---------------------------------------------------------------------------
+// Root-kind detection and normalization (foundation for #19 / #20)
+// ---------------------------------------------------------------------------
+
+export type RootKind = 'loop' | 'iteration' | 'ambiguous' | 'unknown';
+
+const ITER_DIR_RE = /^iter-\d{3}$/;
+
+/**
+ * Classify a directory as a loopRoot, an iterRoot, ambiguous, or unknown.
+ *
+ * Decision rules (applied in order):
+ *  1. Path doesn't exist → throws (caller treats as infrastructure error)
+ *  2. Has both `iter-NNN/` subdirs AND `fabric-score.json` → "ambiguous"
+ *  3. Has any `iter-NNN/` subdir, OR a `current` symlink, OR is an empty directory → "loop"
+ *  4. Has `fabric-score.json` directly inside → "iteration"
+ *  5. Exists with files but matches none of the above → "unknown"
+ */
+export function detectRootKind(dir: string): RootKind {
+  if (!fs.existsSync(dir)) {
+    throw new Error(`detectRootKind: path does not exist: ${dir}`);
+  }
+  const stat = fs.statSync(dir);
+  if (!stat.isDirectory()) {
+    return 'unknown';
+  }
+
+  const entries = fs.readdirSync(dir);
+  const hasIterDirs = entries.some((e) => {
+    if (!ITER_DIR_RE.test(e)) return false;
+    try { return fs.statSync(path.join(dir, e)).isDirectory(); } catch { return false; }
+  });
+  const hasCurrentSymlink = (() => {
+    try { return fs.lstatSync(path.join(dir, 'current')).isSymbolicLink(); } catch { return false; }
+  })();
+  const hasScoreFile = entries.includes('fabric-score.json');
+
+  // Rule 2: both shapes present → ambiguous
+  if ((hasIterDirs || hasCurrentSymlink) && hasScoreFile) return 'ambiguous';
+  // Rule 3: loop shape
+  if (hasIterDirs || hasCurrentSymlink) return 'loop';
+  // Rule 3 cont'd: empty dir is loop intent (caller likely just `mkdir`'d)
+  if (entries.length === 0) return 'loop';
+  // Rule 4: iteration shape
+  if (hasScoreFile) return 'iteration';
+  // Rule 5: has files but matches nothing
+  return 'unknown';
+}
+
+/**
+ * Accept a loopRoot or iterRoot path; return the loopRoot.
+ *
+ * If `input` is already a loop root (detected or explicit), returns it unchanged.
+ * If `input` is an iter root (e.g. `/foo/iter-002`), returns the parent.
+ *
+ * Throws on ambiguous or unknown inputs — callers should have classified first
+ * if they want to disambiguate.
+ */
+export function resolveLoopRoot(input: string): string {
+  const kind = detectRootKind(input);
+  switch (kind) {
+    case 'loop':       return input;
+    case 'iteration':  return path.dirname(input);
+    case 'ambiguous':  throw new Error(`resolveLoopRoot: path is ambiguous (looks like both loop and iter): ${input}`);
+    case 'unknown':    throw new Error(`resolveLoopRoot: path does not look like a loop or iter root: ${input}`);
+  }
+}
+
+/**
+ * Accept a loopRoot or iterRoot path; return the iterRoot to inspect.
+ *
+ * - If `input` is a loop root: returns iter at `iteration` (default: latest existing
+ *   iter-NNN, or iter-001 if none exist yet).
+ * - If `input` is an iter root: returns it unchanged (the caller already picked one).
+ *
+ * Throws on ambiguous or unknown inputs.
+ */
+export function resolveIterRoot(input: string, iteration?: number): string {
+  const kind = detectRootKind(input);
+  switch (kind) {
+    case 'iteration':
+      return input;
+    case 'loop': {
+      if (iteration !== undefined) {
+        return path.join(input, `iter-${String(iteration).padStart(3, '0')}`);
+      }
+      const entries = fs.readdirSync(input).filter((e) => ITER_DIR_RE.test(e)).sort();
+      const latest = entries[entries.length - 1];
+      return latest ? path.join(input, latest) : path.join(input, 'iter-001');
+    }
+    case 'ambiguous':
+      throw new Error(`resolveIterRoot: path is ambiguous (looks like both loop and iter): ${input}`);
+    case 'unknown':
+      throw new Error(`resolveIterRoot: path does not look like a loop or iter root: ${input}`);
+  }
+}
+
 export const FABRIC_SEAL_FILE = '.fabric-sealed';
 
 /**
