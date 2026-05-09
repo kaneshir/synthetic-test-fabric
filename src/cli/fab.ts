@@ -23,7 +23,24 @@ import { installStdoutGuard } from './stdout-guard';
 // ---------------------------------------------------------------------------
 
 detectModesFromArgv();
-if (isJsonMode()) installStdoutGuard();
+if (isJsonMode()) {
+  installStdoutGuard();
+  // Special-case --help / --version: commander writes help/version text to
+  // stdout (which the guard just redirected) then calls exitOverride, which
+  // would leave stdout empty in --json mode and violate the contract.
+  // Pre-handle them with a minimal envelope before commander runs.
+  const argvAfterScript = process.argv.slice(2);
+  const wantsVersion = argvAfterScript.includes('--version') || argvAfterScript.includes('-V');
+  const wantsHelp = argvAfterScript.includes('--help') || argvAfterScript.includes('-h');
+  if (wantsVersion) {
+    emitOk('version', { version: '0.1.0' });
+  }
+  if (wantsHelp) {
+    emitOk('help', {
+      message: 'fab help is intended for human reading. Run without --json to see the full help text.',
+    });
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Helper: every command accepts --json and --debug
@@ -41,6 +58,12 @@ program
   .name('fab')
   .description('Synthetic Test Fabric CLI — autonomous QA loop')
   .version('0.1.0')
+  // Global --json / --debug also accepted at program level so callers can put
+  // the flag before OR after the subcommand: `fab --json seed` or `fab seed --json`.
+  // Both positions are honored by detectModesFromArgv (raw argv scan); these
+  // declarations just keep commander from rejecting the flag at the program scope.
+  .option('--json', 'Emit a machine-readable JSON envelope on stdout')
+  .option('--debug', 'Include stack traces in error envelopes')
   // Make commander throw on parse / unknown-option / missing-required-option errors
   // so the top-level catch can emit a JSON envelope when --json is set.
   // Help / version are still allowed to exit 0 normally.

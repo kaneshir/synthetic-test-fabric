@@ -69,7 +69,7 @@ describe('--json adapter-pollution regression', () => {
 });
 
 describe('--json detection from raw process.argv (pre-commander)', () => {
-  it('emits JSON error envelope on unknown command when --json is set', async () => {
+  it('emits JSON error envelope on unknown command when --json is set (after subcommand)', async () => {
     const r = await runFab(['nonexistent-command', '--json']);
     expect(r.exitCode).not.toBe(0);
     const env: any = parseSingleEnvelope(r.stdout);
@@ -91,6 +91,59 @@ describe('--json detection from raw process.argv (pre-commander)', () => {
     expect(r.exitCode).not.toBe(0);
     expect(r.stdout.trim()).toBe(''); // no JSON on stdout in text mode
     expect(r.stderr.length).toBeGreaterThan(0);
+  });
+
+  // Regression: --json must work whether placed before OR after the subcommand.
+  // Pre-fix, `fab --json seed` was rejected by commander as an unknown program-level option.
+  it('accepts --json BEFORE the subcommand (fab --json seed)', async () => {
+    const r = await runFab(['--json', 'seed']);  // missing required --root
+    expect(r.exitCode).not.toBe(0);
+    const env: any = parseSingleEnvelope(r.stdout);
+    expect(env.status).toBe('error');
+    expect(env.error.message).toMatch(/required option|--root/);
+  });
+
+  it('accepts --json BEFORE an unknown subcommand (fab --json nonexistent)', async () => {
+    const r = await runFab(['--json', 'nonexistent-command']);
+    expect(r.exitCode).not.toBe(0);
+    const env: any = parseSingleEnvelope(r.stdout);
+    expect(env.status).toBe('error');
+    expect(env.error.message).toBeDefined();
+  });
+});
+
+describe('--json with --version and --help', () => {
+  // Regression: --version / --help write to stdout via commander, which the
+  // stdout guard would have redirected, leaving stdout empty in --json mode
+  // and violating the "exactly one envelope" contract. Pre-handled now.
+  it('emits a version envelope on fab --version --json', async () => {
+    const r = await runFab(['--version', '--json']);
+    expect(r.exitCode).toBe(0);
+    const env: any = parseSingleEnvelope(r.stdout);
+    expect(env.command).toBe('version');
+    expect(env.status).toBe('ok');
+    expect(env.data.version).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+
+  it('emits a help envelope on fab --help --json', async () => {
+    const r = await runFab(['--help', '--json']);
+    expect(r.exitCode).toBe(0);
+    const env: any = parseSingleEnvelope(r.stdout);
+    expect(env.command).toBe('help');
+    expect(env.status).toBe('ok');
+    expect(env.data.message).toMatch(/intended for human reading/);
+  });
+
+  it('still emits human-readable text on fab --version (no --json)', async () => {
+    const r = await runFab(['--version']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout.trim()).toMatch(/^\d+\.\d+\.\d+$/);
+  });
+
+  it('still emits human-readable text on fab --help (no --json)', async () => {
+    const r = await runFab(['--help']);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain('Synthetic Test Fabric CLI');
   });
 });
 
