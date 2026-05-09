@@ -2,6 +2,8 @@
 // Excluded from dist via tsconfig (`**/__test-helpers__/**`).
 
 import { spawn } from 'child_process';
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 export interface RunFabOptions {
@@ -35,9 +37,14 @@ export async function runFab(args: string[], opts: RunFabOptions = {}): Promise<
   const startedAt = Date.now();
 
   return new Promise<RunFabResult>((resolve, reject) => {
+    // Isolate state writeback from the dev's real ~/.fab unless the test
+    // explicitly provides FAB_STATE_DIR. Each runFab call gets its own tmp dir.
+    const isolatedStateDir = opts.env?.FAB_STATE_DIR
+      ?? fs.mkdtempSync(path.join(os.tmpdir(), 'fab-test-state-'));
+
     const child = spawn(TSX_BIN, [FAB_SRC, ...args], {
       cwd: opts.cwd ?? process.cwd(),
-      env: { ...process.env, ...opts.env },
+      env: { ...process.env, FAB_STATE_DIR: isolatedStateDir, ...opts.env },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
