@@ -50,31 +50,32 @@ Claude Code loads agents, commands, and skills from two locations:
 
 ### Option A — Copy to user-level `~/.claude/` (recommended, available everywhere)
 
+The published npm package only ships the STF-specific files (`skills/stf/SKILL.md` +
+`agents/stf-runner.md`). The Lisa skills/agents/commands live in this repo as
+reference documentation only — to install them you need a checked-out copy.
+
 ```bash
-# From the repo root
+# Run from a checked-out copy of synthetic-test-fabric.
 DEST=~/.claude
 
-# Agents
-mkdir -p $DEST/agents
-cp docs/claude-skills/agents/stf-runner.md            $DEST/agents/
-cp docs/claude-skills/agents/lisa-baseline-manager.md $DEST/agents/
-cp docs/claude-skills/agents/lisa-runner.md           $DEST/agents/
-cp docs/claude-skills/agents/lisa-scaffolder.md       $DEST/agents/
+# STF (ships in the npm package — also available via `node_modules/synthetic-test-fabric/docs/claude-skills/`)
+mkdir -p $DEST/agents $DEST/skills/stf
+cp docs/claude-skills/agents/stf-runner.md $DEST/agents/
+cp docs/claude-skills/skills/stf/SKILL.md  $DEST/skills/stf/
 
-# Commands
-mkdir -p $DEST/commands
-cp docs/claude-skills/commands/lisa.md     $DEST/commands/
-cp docs/claude-skills/commands/test-ux.md $DEST/commands/
-
-# Skills
-mkdir -p $DEST/skills/stf \
+# Lisa (NOT shipped in npm — only available from this repo)
+# Skip this block if you don't want the Lisa workflow.
+mkdir -p $DEST/commands \
          $DEST/skills/lisa-test \
          $DEST/skills/ai-qa-agent \
          $DEST/skills/guided-exploration \
          $DEST/skills/flutter-test-generator \
          $DEST/skills/lisa-qa-agent
-
-cp docs/claude-skills/skills/stf/SKILL.md                     $DEST/skills/stf/
+cp docs/claude-skills/agents/lisa-baseline-manager.md         $DEST/agents/
+cp docs/claude-skills/agents/lisa-runner.md                   $DEST/agents/
+cp docs/claude-skills/agents/lisa-scaffolder.md               $DEST/agents/
+cp docs/claude-skills/commands/lisa.md                        $DEST/commands/
+cp docs/claude-skills/commands/test-ux.md                     $DEST/commands/
 cp docs/claude-skills/skills/lisa-test/SKILL.md               $DEST/skills/lisa-test/
 cp docs/claude-skills/skills/ai-qa-agent/SKILL.md             $DEST/skills/ai-qa-agent/
 cp docs/claude-skills/skills/guided-exploration/SKILL.md      $DEST/skills/guided-exploration/
@@ -86,11 +87,24 @@ The `stf` skill drives the `fab` CLI / `fab-mcp` server (added in v0.4.0). When 
 have `fab-mcp` installed in `~/.claude/.mcp.json`, agents prefer the native MCP tools
 (`stf_*`); without it they fall back to `fab` shell commands. Both work, MCP is faster.
 
-### Option B — Copy to project `.claude/` (this project only)
+### Option B — npm-package consumers (STF only, no Lisa)
+
+After `npm install synthetic-test-fabric`, copy the bundled STF files:
 
 ```bash
-cp -r docs/claude-skills/agents       .claude/agents
-cp -r docs/claude-skills/skills       .claude/skills
+DEST=~/.claude
+mkdir -p $DEST/agents $DEST/skills/stf
+cp node_modules/synthetic-test-fabric/docs/claude-skills/agents/stf-runner.md $DEST/agents/
+cp node_modules/synthetic-test-fabric/docs/claude-skills/skills/stf/SKILL.md  $DEST/skills/stf/
+```
+
+### Option C — Copy to project `.claude/` (this project only)
+
+```bash
+# STF only (works against an installed package or this repo)
+mkdir -p .claude/agents .claude/skills/stf
+cp docs/claude-skills/agents/stf-runner.md .claude/agents/
+cp docs/claude-skills/skills/stf/SKILL.md  .claude/skills/stf/
 ```
 
 ---
