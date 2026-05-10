@@ -39,6 +39,21 @@ export type {
 // Project scaffolder (added in #21) — same library backs the `fab init` CLI.
 export { scaffoldProject, InitConflictError } from './cli/init';
 export type { InitOptions, InitResult } from './cli/init';
+// Per-adapter scaffolder (added in #22) — same library backs `fab adapter scaffold`.
+export {
+  scaffoldAdapter,
+  ScaffoldAdapterError,
+  renderAdapterStub,
+  isAdapterType,
+  ADAPTER_TYPES,
+  ADAPTER_INTERFACES,
+  DEFAULT_ADAPTER_CLASS_NAMES,
+} from './cli/init';
+export type {
+  AdapterType,
+  ScaffoldAdapterOptions,
+  ScaffoldAdapterResult,
+} from './cli/init';
 export type { FabricScore } from './score';
 export { parsePlaywrightResults, specFilenameToScreenPath } from './playwright-result';
 export type { PlaywrightAgentResult, PlaywrightFailedFlow } from './playwright-result';

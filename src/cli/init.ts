@@ -1,20 +1,217 @@
 /**
- * `fab init` — scaffolds a parseable `fabric.config.ts` plus stub adapters
- * into the target directory. The generated config is shaped to load
- * immediately via `loadFabricConfig()` so `fab doctor` (#24) and other
- * commands don't blow up the moment the user runs `fab init`.
+ * `fab init` and `fab adapter scaffold` — project + per-adapter scaffolders.
  *
- * Adapter stubs follow the real interface names exported from the package:
- * `AppAdapter`, `SimulationAdapter`, `ScoringAdapter`, `FeedbackAdapter`,
- * `MemoryAdapter`, `BrowserAdapter`, `Reporter`, `ScenarioPlanner`. Each
- * stub returns a no-op for methods the framework allows to be empty
- * (e.g., `reset`, `clean`, `validateEnvironment`) and throws
- * `new Error('TODO: implement <method>')` for required methods so
- * unimplemented adapters fail loudly rather than silently no-op.
+ * `scaffoldProject(opts)` writes a complete starter tree (fabric.config.ts +
+ * 8 adapter stubs + flows/.gitkeep). `scaffoldAdapter(type, opts)` writes a
+ * single adapter file for one of the 8 supported interfaces.
+ *
+ * Both commands share the same `ADAPTER_TEMPLATES` registry so the generated
+ * code is consistent across `fab init` and `fab adapter scaffold`.
+ *
+ * Stub policy: required interface methods throw `new Error('TODO: implement
+ * <method>')` so unimplemented adapters fail loudly. Optional methods (reset,
+ * clean, validateEnvironment, importRun) are no-ops by default.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
+
+// ---------------------------------------------------------------------------
+// Adapter type registry
+// ---------------------------------------------------------------------------
+
+/** All 8 adapter types fab knows how to scaffold. */
+export const ADAPTER_TYPES = [
+  'app', 'simulation', 'scoring', 'feedback',
+  'memory', 'browser', 'reporter', 'planner',
+] as const;
+
+export type AdapterType = typeof ADAPTER_TYPES[number];
+
+/** Interface name (in the synthetic-test-fabric package) for each adapter type. */
+export const ADAPTER_INTERFACES: Record<AdapterType, string> = {
+  app:        'AppAdapter',
+  simulation: 'SimulationAdapter',
+  scoring:    'ScoringAdapter',
+  feedback:   'FeedbackAdapter',
+  memory:     'MemoryAdapter',
+  browser:    'BrowserAdapter',
+  reporter:   'Reporter',
+  planner:    'ScenarioPlanner',
+};
+
+/** Default class name for each adapter type — used when --name not provided. */
+export const DEFAULT_ADAPTER_CLASS_NAMES: Record<AdapterType, string> = {
+  app:        'MyAppAdapter',
+  simulation: 'MySimulationAdapter',
+  scoring:    'MyScoringAdapter',
+  feedback:   'MyFeedbackAdapter',
+  memory:     'MyMemoryAdapter',
+  browser:    'MyBrowserAdapter',
+  reporter:   'MyReporter',
+  planner:    'MyScenarioPlanner',
+};
+
+export function isAdapterType(s: string): s is AdapterType {
+  return (ADAPTER_TYPES as readonly string[]).includes(s);
+}
+
+// ---------------------------------------------------------------------------
+// Template renderer
+// ---------------------------------------------------------------------------
+
+const TODO = (fqMethod: string) => `throw new Error('TODO: implement ${fqMethod}');`;
+
+/**
+ * Render the body of a stub adapter file for a given type + class name.
+ *
+ * Produces a complete, parseable TypeScript module that imports interface
+ * types from `pkg` and exports a class implementing the requested interface.
+ */
+export function renderAdapterStub(
+  type: AdapterType,
+  opts: { pkg?: string; className?: string } = {},
+): string {
+  const pkg = opts.pkg ?? 'synthetic-test-fabric';
+  const className = opts.className ?? DEFAULT_ADAPTER_CLASS_NAMES[type];
+  const iface = ADAPTER_INTERFACES[type];
+
+  switch (type) {
+    case 'app':
+      return `import type { ${iface}, SeededEntity, AppHealthResult } from '${pkg}';
+
+export class ${className} implements ${iface} {
+  async seed(_iterRoot: string, _config: { seekers: number; employers: number; employees: number; scenarioName?: string; personaAdjustmentsPath?: string }): Promise<SeededEntity[]> {
+    ${TODO(`${className}.seed`)}
+  }
+
+  async reset(_iterRoot: string): Promise<void> {
+    // No-op is acceptable here; remove app state created by seed() if your
+    // app keeps long-lived data between iterations.
+  }
+
+  async validateEnvironment(): Promise<AppHealthResult> {
+    return { healthy: true, errors: [], warnings: [] };
+  }
+
+  async verify(_iterRoot: string): Promise<void> {
+    ${TODO(`${className}.verify`)}
+  }
+
+  async importRun(_iterRoot: string, _dbUrl: string): Promise<void> {
+    // No-op is acceptable; only called when dbUrl is provided.
+  }
+}
+`;
+
+    case 'simulation':
+      return `import type { ${iface}, SeededEntity, SimulationRunResult } from '${pkg}';
+
+export class ${className} implements ${iface} {
+  async run(_iterRoot: string, _options: { ticks: number; liveLlm: boolean; simulationId?: string }): Promise<SimulationRunResult> {
+    ${TODO(`${className}.run`)}
+  }
+
+  async exportEntities(_iterRoot: string, _entities: SeededEntity[]): Promise<void> {
+    ${TODO(`${className}.exportEntities`)}
+  }
+
+  async clean(_iterRoot: string): Promise<void> {
+    // No-op is acceptable.
+  }
+}
+`;
+
+    case 'scoring':
+      return `import type { ${iface}, FabricScore } from '${pkg}';
+
+export class ${className} implements ${iface} {
+  async score(_iterRoot: string): Promise<FabricScore> {
+    ${TODO(`${className}.score`)}
+  }
+}
+`;
+
+    case 'feedback':
+      return `import type { ${iface}, FabricFeedback, FabricScore } from '${pkg}';
+
+export class ${className} implements ${iface} {
+  async feedback(_iterRoot: string, _options: { score: FabricScore; loopId: string; iteration: number; previousIterRoot: string | null }): Promise<FabricFeedback> {
+    ${TODO(`${className}.feedback`)}
+  }
+}
+`;
+
+    case 'memory':
+      return `import type { ${iface}, RecorderInput, SeededEntity } from '${pkg}';
+
+export class ${className} implements ${iface} {
+  migrate(_dbPath: string): void {
+    ${TODO(`${className}.migrate`)}
+  }
+
+  writeEvent(_dbPath: string, _event: RecorderInput): void {
+    ${TODO(`${className}.writeEvent`)}
+  }
+
+  resolveEntity(_dbPath: string, _alias: string): SeededEntity | null {
+    return null;
+  }
+
+  listEntities(_dbPath: string, _simulationId: string): SeededEntity[] {
+    return [];
+  }
+}
+`;
+
+    case 'browser':
+      return `import type { ${iface}, BrowserRunResult, LlmProvider } from '${pkg}';
+
+export class ${className} implements ${iface} {
+  async runSpecs(_options: {
+    iterRoot: string;
+    project: string;
+    allowFailures: boolean;
+    grep?: string;
+    retryCount?: number;
+    retryDelayMs?: number;
+    quarantinedFlows?: string[];
+    llmProvider?: LlmProvider;
+  }): Promise<BrowserRunResult> {
+    ${TODO(`${className}.runSpecs`)}
+  }
+}
+`;
+
+    case 'reporter':
+      return `import type { ${iface}, FabricScore, FabricReport } from '${pkg}';
+
+export class ${className} implements ${iface} {
+  async report(_score: FabricScore, _iterRoot: string): Promise<FabricReport> {
+    return { format: 'console', content: '(stub reporter — replace with real implementation)' };
+  }
+}
+`;
+
+    case 'planner':
+      return `import type { ${iface}, FabricScore, ScenarioPlan } from '${pkg}';
+
+export class ${className} implements ${iface} {
+  async plan(_score: FabricScore, _iterRoot: string): Promise<ScenarioPlan> {
+    return {
+      scenarioName: 'baseline_browser_flow',
+      rationale: 'stub planner — always returns baseline; replace with your selection logic',
+      personaAdjustments: [],
+    };
+  }
+}
+`;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// scaffoldProject (used by `fab init`)
+// ---------------------------------------------------------------------------
 
 export interface InitOptions {
   /** Target directory for scaffolding (defaults to process.cwd()). */
@@ -27,7 +224,7 @@ export interface InitOptions {
 
 export interface InitResult {
   filesCreated: string[];
-  filesSkipped: string[];     // files that already existed (only populated when not --force)
+  filesSkipped: string[];     // populated only when not --force and conflicts present
 }
 
 export class InitConflictError extends Error {
@@ -40,20 +237,20 @@ export class InitConflictError extends Error {
   }
 }
 
-interface FileSpec {
-  /** Relative path from the target dir. */
-  relPath: string;
-  /** File body. */
-  content: string;
-}
-
 export function scaffoldProject(opts: InitOptions = {}): InitResult {
   const targetDir = path.resolve(opts.dir ?? process.cwd());
   const pkg = opts.packageName ?? 'synthetic-test-fabric';
 
-  const files = generateFileSpecs(pkg);
+  // Build file list: fabric.config.ts + one stub per adapter type + flows/.gitkeep
+  const files: { relPath: string; content: string }[] = [
+    { relPath: 'fabric.config.ts', content: fabricConfigTemplate(pkg) },
+    ...ADAPTER_TYPES.map((type) => ({
+      relPath: `src/adapters/${DEFAULT_ADAPTER_CLASS_NAMES[type]}.ts`,
+      content: renderAdapterStub(type, { pkg }),
+    })),
+    { relPath: 'flows/.gitkeep', content: '' },
+  ];
 
-  // Check for conflicts before writing anything.
   const conflicts = files
     .map((f) => path.join(targetDir, f.relPath))
     .filter((p) => fs.existsSync(p));
@@ -61,8 +258,6 @@ export function scaffoldProject(opts: InitOptions = {}): InitResult {
     throw new InitConflictError(conflicts);
   }
 
-  // Write all files (atomic-ish: errors mid-batch leave partial state, but
-  // that's no worse than the conflict-check pattern).
   const filesCreated: string[] = [];
   for (const f of files) {
     const full = path.join(targetDir, f.relPath);
@@ -73,27 +268,6 @@ export function scaffoldProject(opts: InitOptions = {}): InitResult {
 
   return { filesCreated, filesSkipped: [] };
 }
-
-// ---------------------------------------------------------------------------
-// Template generation
-// ---------------------------------------------------------------------------
-
-function generateFileSpecs(pkg: string): FileSpec[] {
-  return [
-    { relPath: 'fabric.config.ts',                    content: fabricConfigTemplate(pkg) },
-    { relPath: 'src/adapters/MyAppAdapter.ts',        content: appAdapterStub(pkg) },
-    { relPath: 'src/adapters/MySimulationAdapter.ts', content: simulationAdapterStub(pkg) },
-    { relPath: 'src/adapters/MyScoringAdapter.ts',    content: scoringAdapterStub(pkg) },
-    { relPath: 'src/adapters/MyFeedbackAdapter.ts',   content: feedbackAdapterStub(pkg) },
-    { relPath: 'src/adapters/MyMemoryAdapter.ts',     content: memoryAdapterStub(pkg) },
-    { relPath: 'src/adapters/MyBrowserAdapter.ts',    content: browserAdapterStub(pkg) },
-    { relPath: 'src/adapters/MyReporter.ts',          content: reporterStub(pkg) },
-    { relPath: 'src/adapters/MyScenarioPlanner.ts',   content: scenarioPlannerStub(pkg) },
-    { relPath: 'flows/.gitkeep',                      content: '' },
-  ];
-}
-
-const TODO = (method: string) => `throw new Error('TODO: implement ${method}');`;
 
 function fabricConfigTemplate(pkg: string): string {
   return `// Generated by \`fab init\`. Wire your real adapters in src/adapters/ and customize this file.
@@ -124,140 +298,74 @@ export default config;
 `;
 }
 
-function appAdapterStub(pkg: string): string {
-  return `import type { AppAdapter, SeededEntity, AppHealthResult } from '${pkg}';
+// ---------------------------------------------------------------------------
+// scaffoldAdapter (used by `fab adapter scaffold <type>`)
+// ---------------------------------------------------------------------------
 
-export class MyAppAdapter implements AppAdapter {
-  async seed(_iterRoot: string, _config: { seekers: number; employers: number; employees: number; scenarioName?: string; personaAdjustmentsPath?: string }): Promise<SeededEntity[]> {
-    ${TODO('MyAppAdapter.seed')}
-  }
-
-  async reset(_iterRoot: string): Promise<void> {
-    // No-op is acceptable here; remove app state created by seed() if your
-    // app keeps long-lived data between iterations.
-  }
-
-  async validateEnvironment(): Promise<AppHealthResult> {
-    return { healthy: true, errors: [], warnings: [] };
-  }
-
-  async verify(_iterRoot: string): Promise<void> {
-    ${TODO('MyAppAdapter.verify')}
-  }
-
-  async importRun(_iterRoot: string, _dbUrl: string): Promise<void> {
-    // No-op is acceptable; only called when dbUrl is provided.
-  }
-}
-`;
+export interface ScaffoldAdapterOptions {
+  /** Output file path. If omitted, content is returned but not written. */
+  out?: string;
+  /** Class name for the generated stub. Defaults to DEFAULT_ADAPTER_CLASS_NAMES[type]. */
+  name?: string;
+  /** Package import path. Default 'synthetic-test-fabric'. */
+  packageName?: string;
+  /** Overwrite existing file at `out` instead of failing. */
+  force?: boolean;
 }
 
-function simulationAdapterStub(pkg: string): string {
-  return `import type { SimulationAdapter, SeededEntity, SimulationRunResult } from '${pkg}';
-
-export class MySimulationAdapter implements SimulationAdapter {
-  async run(_iterRoot: string, _options: { ticks: number; liveLlm: boolean; simulationId?: string }): Promise<SimulationRunResult> {
-    ${TODO('MySimulationAdapter.run')}
-  }
-
-  async exportEntities(_iterRoot: string, _entities: SeededEntity[]): Promise<void> {
-    ${TODO('MySimulationAdapter.exportEntities')}
-  }
-
-  async clean(_iterRoot: string): Promise<void> {
-    // No-op is acceptable.
-  }
-}
-`;
+export interface ScaffoldAdapterResult {
+  type: AdapterType;
+  className: string;
+  interfaceName: string;
+  content: string;
+  /** Absolute path the stub was written to, or null if `out` was omitted (stdout mode). */
+  filePath: string | null;
 }
 
-function scoringAdapterStub(pkg: string): string {
-  return `import type { ScoringAdapter, FabricScore } from '${pkg}';
-
-export class MyScoringAdapter implements ScoringAdapter {
-  async score(_iterRoot: string): Promise<FabricScore> {
-    ${TODO('MyScoringAdapter.score')}
+export class ScaffoldAdapterError extends Error {
+  readonly code: string;
+  constructor(message: string, code: string) {
+    super(message);
+    this.name = 'ScaffoldAdapterError';
+    this.code = code;
   }
 }
-`;
-}
 
-function feedbackAdapterStub(pkg: string): string {
-  return `import type { FeedbackAdapter, FabricFeedback, FabricScore } from '${pkg}';
-
-export class MyFeedbackAdapter implements FeedbackAdapter {
-  async feedback(_iterRoot: string, _options: { score: FabricScore; loopId: string; iteration: number; previousIterRoot: string | null }): Promise<FabricFeedback> {
-    ${TODO('MyFeedbackAdapter.feedback')}
-  }
-}
-`;
-}
-
-function memoryAdapterStub(pkg: string): string {
-  return `import type { MemoryAdapter, RecorderInput, SeededEntity } from '${pkg}';
-
-export class MyMemoryAdapter implements MemoryAdapter {
-  migrate(_dbPath: string): void {
-    ${TODO('MyMemoryAdapter.migrate')}
+/**
+ * Generate a single adapter stub of the requested type.
+ *
+ * If `out` is provided, writes the file (refusing to overwrite without
+ * `force`). If `out` is omitted, returns the content for the caller to
+ * pipe to stdout / stash elsewhere.
+ */
+export function scaffoldAdapter(
+  type: string,
+  opts: ScaffoldAdapterOptions = {},
+): ScaffoldAdapterResult {
+  if (!isAdapterType(type)) {
+    throw new ScaffoldAdapterError(
+      `Unknown adapter type '${type}'. Valid types: ${ADAPTER_TYPES.join(', ')}`,
+      'UNKNOWN_ADAPTER_TYPE',
+    );
   }
 
-  writeEvent(_dbPath: string, _event: RecorderInput): void {
-    ${TODO('MyMemoryAdapter.writeEvent')}
+  const className = opts.name ?? DEFAULT_ADAPTER_CLASS_NAMES[type];
+  const content = renderAdapterStub(type, { pkg: opts.packageName, className });
+  const interfaceName = ADAPTER_INTERFACES[type];
+
+  let filePath: string | null = null;
+  if (opts.out !== undefined) {
+    const resolved = path.resolve(opts.out);
+    if (fs.existsSync(resolved) && !opts.force) {
+      throw new ScaffoldAdapterError(
+        `${resolved} already exists; pass --force to overwrite`,
+        'OUT_PATH_EXISTS',
+      );
+    }
+    fs.mkdirSync(path.dirname(resolved), { recursive: true });
+    fs.writeFileSync(resolved, content);
+    filePath = resolved;
   }
 
-  resolveEntity(_dbPath: string, _alias: string): SeededEntity | null {
-    return null;
-  }
-
-  listEntities(_dbPath: string, _simulationId: string): SeededEntity[] {
-    return [];
-  }
-}
-`;
-}
-
-function browserAdapterStub(pkg: string): string {
-  return `import type { BrowserAdapter, BrowserRunResult, LlmProvider } from '${pkg}';
-
-export class MyBrowserAdapter implements BrowserAdapter {
-  async runSpecs(_options: {
-    iterRoot: string;
-    project: string;
-    allowFailures: boolean;
-    grep?: string;
-    retryCount?: number;
-    retryDelayMs?: number;
-    quarantinedFlows?: string[];
-    llmProvider?: LlmProvider;
-  }): Promise<BrowserRunResult> {
-    ${TODO('MyBrowserAdapter.runSpecs')}
-  }
-}
-`;
-}
-
-function reporterStub(pkg: string): string {
-  return `import type { Reporter, FabricScore, FabricReport } from '${pkg}';
-
-export class MyReporter implements Reporter {
-  async report(_score: FabricScore, _iterRoot: string): Promise<FabricReport> {
-    return { format: 'console', content: '(stub reporter — replace with real implementation)' };
-  }
-}
-`;
-}
-
-function scenarioPlannerStub(pkg: string): string {
-  return `import type { ScenarioPlanner, FabricScore, ScenarioPlan } from '${pkg}';
-
-export class MyScenarioPlanner implements ScenarioPlanner {
-  async plan(_score: FabricScore, _iterRoot: string): Promise<ScenarioPlan> {
-    return {
-      scenarioName: 'baseline_browser_flow',
-      rationale: 'stub planner — always returns baseline; replace with your selection logic',
-      personaAdjustments: [],
-    };
-  }
-}
-`;
+  return { type, className, interfaceName, content, filePath };
 }
