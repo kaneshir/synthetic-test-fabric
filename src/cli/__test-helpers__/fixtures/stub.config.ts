@@ -2,6 +2,8 @@
 // Used by backward-compat snapshot tests to exercise the CLI without
 // real adapter side effects. NOT shipped (excluded via `**/__test-helpers__/**`).
 
+import * as fs from 'fs';
+import * as path from 'path';
 import type {
   AppAdapter,
   SimulationAdapter,
@@ -84,14 +86,11 @@ class StubBrowserAdapter implements BrowserAdapter {
     // Orchestrator looks for flow-results.json (regression) and
     // generated-flow-results.json (generated specs). Write both so any project
     // (smoke / flows / regression / analyze / generate) leaves valid artifacts.
-    const fs = require('fs') as typeof import('fs');
-    const path = require('path') as typeof import('path');
     fs.mkdirSync(opts.iterRoot, { recursive: true });
-    // Orchestrator's assertRegressionResultsWritten requires stats.expected
-     // + unexpected + flaky > 0 (or non-empty suites). Use expected: 1 with
-     // an empty suites array so the guard passes without faking real test
-     // execution detail.
-     const empty = JSON.stringify({ stats: { expected: 1, unexpected: 0, flaky: 0 }, suites: [] });
+    // assertRegressionResultsWritten requires stats.expected + unexpected +
+    // flaky > 0 (or non-empty suites). Use expected: 1 with an empty suites
+    // array so the guard passes without faking real test execution detail.
+    const empty = JSON.stringify({ stats: { expected: 1, unexpected: 0, flaky: 0 }, suites: [] });
     fs.writeFileSync(path.join(opts.iterRoot, 'flow-results.json'), empty);
     fs.writeFileSync(path.join(opts.iterRoot, 'generated-flow-results.json'), empty);
     return { passed: 0, failed: 0, total: 0, resultsPath: path.join(opts.iterRoot, 'flow-results.json') };
