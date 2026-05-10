@@ -289,8 +289,9 @@ describe('fab-mcp — timeout precedence (review-flagged regressions)', () => {
   // tool calls — the server passed tool.defaultTimeoutMs straight through,
   // so the env never reached the runner.
 
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { runFabCommand, resolveEnvTimeoutMs } = require(path.join(REPO_ROOT, 'dist', 'mcp', 'runner.js'));
+  /* eslint-disable @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires */
+  const { runFabCommand, resolveEnvTimeoutMs } = require(path.join(REPO_ROOT, 'dist', 'mcp', 'runner.js')) as typeof import('./runner');
+  /* eslint-enable @typescript-eslint/no-require-imports, @typescript-eslint/no-var-requires */
 
   function withEnv<T>(key: string, value: string | undefined, fn: () => T): T {
     const original = process.env[key];
