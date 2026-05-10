@@ -61,6 +61,11 @@ export type {
   ValidationResult,
   ValidateAdapterOptions,
 } from './cli/adapter-validate';
+// MCP server — fab-mcp wrapping all fab commands as native MCP tools (added in #27).
+export { runFabCommand, FAB_CLI_PATH, resolveEnvTimeoutMs } from './mcp/runner';
+export type { RunFabResult, RunFabOptions } from './mcp/runner';
+export { createServer as createMcpServer, TOOL_COUNT, TOOL_NAMES } from './mcp/server';
+
 // Doctor — environment + peer-dep health check (added in #24).
 export { runDoctor } from './cli/doctor';
 export type {

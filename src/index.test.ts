@@ -112,4 +112,19 @@ describe('public API surface (src/index.ts)', () => {
       expectExported(name);
     });
   });
+
+  describe('mcp server (#27)', () => {
+    it.each([
+      'runFabCommand',
+      'FAB_CLI_PATH',
+      'resolveEnvTimeoutMs',
+      'RunFabResult',
+      'RunFabOptions',
+      'createMcpServer',
+      'TOOL_COUNT',
+      'TOOL_NAMES',
+    ])('exports %s', (name) => {
+      expectExported(name);
+    });
+  });
 });

@@ -28,7 +28,8 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "fab": "dist/cli/fab.js"
+    "fab": "dist/cli/fab.js",
+    "fab-mcp": "dist/mcp/server.js"
   },
   "scripts": {
     "prepare": "npm run build",
@@ -46,6 +47,7 @@
     "benchmark": "npx tsx demo/benchmark.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^12.8.0",
     "commander": "^12.1.0",
     "pixelmatch": "^7.1.0",
@@ -96,6 +98,7 @@
     "docs/persona-yaml-reference.md",
     "docs/lisa-mcp.md",
     "docs/cli-json-output.md",
+    "docs/mcp-install.md",
     "docs/claude-skills/README.md",
     "docs/claude-skills/skills/stf/",
     "docs/claude-skills/agents/stf-runner.md",
