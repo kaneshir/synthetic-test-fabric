@@ -22,7 +22,8 @@ import {
 import { installStdoutGuard } from './stdout-guard';
 import { recordCommand, readState, getStatePath } from './state';
 import type { LastRootKind } from './state';
-import { scaffoldProject, InitConflictError, scaffoldAdapter, ScaffoldAdapterError, ADAPTER_TYPES } from './init';
+import { scaffoldProject, InitConflictError, scaffoldAdapter, ScaffoldAdapterError, ADAPTER_TYPES, isAdapterType } from './init';
+import { validateAdapter, AdapterValidateError } from './adapter-validate';
 
 // ---------------------------------------------------------------------------
 // JSON-mode setup — must run BEFORE commander parses so unknown-command /
@@ -837,6 +838,50 @@ withJsonOptions(adapter
       // Include content in JSON envelope when no --out was given (pipe target).
       content: result.filePath ? undefined : result.content,
     }, { runRoot: result.filePath ?? undefined });
+  });
+
+withJsonOptions(adapter
+  .command('validate <path>')
+  .description('Validate that a TS file declares an adapter implementing one of the 8 fab interfaces')
+  .option('--type <type>', `Force interpretation. Types: ${ADAPTER_TYPES.join(', ')} (default: auto-detect)`))
+  .action(async (filePath: string, opts) => {
+    if (opts.type !== undefined && !isAdapterType(opts.type)) {
+      const msg = `--type must be one of: ${ADAPTER_TYPES.join(', ')}; got: ${opts.type}`;
+      console.error(`[fab adapter validate] ${msg}`);
+      emitError('adapter-validate', { message: msg, code: 'UNKNOWN_ADAPTER_TYPE' });
+    }
+
+    let result;
+    try {
+      result = validateAdapter(filePath, { type: opts.type });
+    } catch (err) {
+      if (err instanceof AdapterValidateError) {
+        console.error(`[fab adapter validate] ${err.message}`);
+        emitError('adapter-validate', { message: err.message, code: err.code });
+      }
+      throw err;
+    }
+
+    if (result.ok) {
+      console.log(`[fab adapter validate] ✅ ${result.className} (${result.type}) — all required methods present`);
+      emitOk('adapter-validate', {
+        ok: true,
+        type: result.type,
+        className: result.className,
+        errors: [],
+      });
+    } else {
+      console.error(`[fab adapter validate] ❌ ${result.className} (${result.type}) — ${result.errors.length} issue(s):`);
+      for (const e of result.errors) {
+        console.error(`  - ${e.kind}: ${e.expected}${e.line ? ` (line ${e.line})` : ''}`);
+      }
+      emitDomainFailure('adapter-validate', {
+        ok: false,
+        type: result.type,
+        className: result.className,
+        errors: result.errors,
+      });
+    }
   });
 
 // ---------------------------------------------------------------------------
