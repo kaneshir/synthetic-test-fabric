@@ -406,16 +406,14 @@ describe('MCP timeout precedence — release-readiness gate', () => {
     }
   });
 
-  it('FAB_MCP_TIMEOUT_MS reaches the runner via MCP server tool calls', async () => {
+  it('FAB_MCP_TIMEOUT_MS reaches the runner via MCP server tool calls (low-timeout discriminating test)', async () => {
     // Pre-fix: server passed tool.defaultTimeoutMs straight through to
-    // runFabCommand, ignoring the env. Now: env applies between per-call
-    // input.timeout_ms and tool.defaultTimeoutMs.
-    //
-    // We assert the high-env case completes cleanly (pre-fix would have
-    // also completed because tool.defaultTimeoutMs of 30s was used; but
-    // combined with the unit suite in #36 + the resolveEnvTimeoutMs
-    // export wired into src/index.ts, the integration test serves as
-    // the end-to-end smoke that the env path isn't broken at the seam.)
+    // runFabCommand, ignoring the env. Setting FAB_MCP_TIMEOUT_MS=1 here is
+    // the discriminating case — pre-fix the server would have used
+    // tool.defaultTimeoutMs (30s) for stf_status and the call would have
+    // SUCCEEDED. Post-fix the 1ms env value reaches the runner, fires
+    // setTimeout(1) which kills the spawned subprocess almost immediately,
+    // and the result is a synthesized TIMEOUT envelope.
     const stateDir = tmpStateDir();
     try {
       const responses = await rpcRoundTrip(
@@ -423,12 +421,15 @@ describe('MCP timeout precedence — release-readiness gate', () => {
           initReq(1),
           callReq(2, 'stf_status', {}),
         ],
-        { env: { FAB_STATE_DIR: stateDir, FAB_MCP_TIMEOUT_MS: '60000' } },
+        { env: { FAB_STATE_DIR: stateDir, FAB_MCP_TIMEOUT_MS: '1' } },
       );
       const tool = responses[1].result as { isError?: boolean; content: Array<{ text: string }> };
-      expect(tool.isError).not.toBe(true);
+      // TIMEOUT is an infrastructure error — server returns isError:true with
+      // the synthesized envelope from runner.ts (code: TIMEOUT).
+      expect(tool.isError).toBe(true);
       const env: any = JSON.parse(tool.content[0].text);
-      expect(env.status).toBe('ok');
+      expect(env.status).toBe('error');
+      expect(env.error.code).toBe('TIMEOUT');
     } finally {
       fs.rmSync(stateDir, { recursive: true, force: true });
     }
