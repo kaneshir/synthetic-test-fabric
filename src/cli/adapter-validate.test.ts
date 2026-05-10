@@ -219,6 +219,94 @@ describe('fab adapter validate — CLI', () => {
   });
 });
 
+describe('validateAdapter — review-flagged regressions', () => {
+  // Reviewer finding 1: validateAdapter() ignored TypeScript parse diagnostics,
+  // so malformed TS could validate as ok:true.
+  it('throws SYNTAX_ERROR on malformed TypeScript', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fab-validate-syntax-'));
+    try {
+      const file = path.join(dir, 'Bad.ts');
+      fs.writeFileSync(file, `
+        import type { ScoringAdapter } from 'synthetic-test-fabric';
+        export class BrokenScoringAdapter implements ScoringAdapter {
+          score(:::): {
+      `);
+      expect(() => validateAdapter(file)).toThrow(AdapterValidateError);
+      try { validateAdapter(file); }
+      catch (err) {
+        expect((err as AdapterValidateError).code).toBe('SYNTAX_ERROR');
+        expect((err as AdapterValidateError).message).toMatch(/parse error at line/);
+      }
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  // Reviewer finding 2: method scan only counted MethodDeclaration, so valid
+  // class-field arrow implementations were falsely reported missing.
+  it('accepts class-field arrow implementations', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fab-validate-arrow-'));
+    try {
+      const file = path.join(dir, 'Arrow.ts');
+      fs.writeFileSync(file, `
+        import type { ScoringAdapter, FabricScore } from 'synthetic-test-fabric';
+        export class ArrowScoringAdapter implements ScoringAdapter {
+          score = async (_iterRoot: string): Promise<FabricScore> => ({} as FabricScore);
+        }
+      `);
+      const r = validateAdapter(file);
+      expect(r.ok).toBe(true);
+      expect(r.errors).toEqual([]);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it('accepts class-field function-expression implementations', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fab-validate-fnexpr-'));
+    try {
+      const file = path.join(dir, 'FnExpr.ts');
+      fs.writeFileSync(file, `
+        import type { Reporter } from 'synthetic-test-fabric';
+        export class FnExprReporter implements Reporter {
+          report = async function(_score: any, _root: any) {
+            return { format: 'console' as const, content: '' };
+          };
+        }
+      `);
+      expect(validateAdapter(file).ok).toBe(true);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it('still reports missing when arrow field is named differently', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fab-validate-arrow-miss-'));
+    try {
+      const file = path.join(dir, 'WrongName.ts');
+      fs.writeFileSync(file, `
+        import type { ScoringAdapter } from 'synthetic-test-fabric';
+        export class WrongNameScoringAdapter implements ScoringAdapter {
+          computeScore = async (_root: string) => ({} as any);
+        }
+      `);
+      const r = validateAdapter(file);
+      expect(r.ok).toBe(false);
+      expect(r.errors[0].method).toBe('score');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it('still reports missing when class field is non-callable', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fab-validate-noncallable-'));
+    try {
+      const file = path.join(dir, 'NonCallable.ts');
+      fs.writeFileSync(file, `
+        import type { ScoringAdapter } from 'synthetic-test-fabric';
+        export class NonCallableScoringAdapter implements ScoringAdapter {
+          score = 42;
+        }
+      `);
+      const r = validateAdapter(file);
+      expect(r.ok).toBe(false);
+      expect(r.errors[0].method).toBe('score');
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+});
+
 describe('cross-check: every interface in ADAPTER_INTERFACES is in INTERFACE_METHODS', () => {
   // Catches regressions where a new adapter type is added but the
   // INTERFACE_METHODS table isn't updated.
