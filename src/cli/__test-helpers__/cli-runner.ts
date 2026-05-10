@@ -25,6 +25,7 @@ export interface RunFabResult {
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 const TSX_BIN = path.join(REPO_ROOT, 'node_modules', '.bin', 'tsx');
 const FAB_SRC = path.join(REPO_ROOT, 'src', 'cli', 'fab.ts');
+const FAB_DIST = path.join(REPO_ROOT, 'dist', 'cli', 'fab.js');
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 /**
@@ -42,7 +43,11 @@ export async function runFab(args: string[], opts: RunFabOptions = {}): Promise<
     const isolatedStateDir = opts.env?.FAB_STATE_DIR
       ?? fs.mkdtempSync(path.join(os.tmpdir(), 'fab-test-state-'));
 
-    const child = spawn(TSX_BIN, [FAB_SRC, ...args], {
+    const hasBuiltCli = fs.existsSync(FAB_DIST);
+    const command = hasBuiltCli ? process.execPath : TSX_BIN;
+    const commandArgs = hasBuiltCli ? [FAB_DIST, ...args] : [FAB_SRC, ...args];
+
+    const child = spawn(command, commandArgs, {
       cwd: opts.cwd ?? process.cwd(),
       env: { ...process.env, FAB_STATE_DIR: isolatedStateDir, ...opts.env },
       stdio: ['pipe', 'pipe', 'pipe'],
