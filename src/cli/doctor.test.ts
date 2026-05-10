@@ -237,17 +237,44 @@ describe('activelyRequiredPeers — review-flagged regression', () => {
     }
   });
 
-  it('static-fallback: fabric.config.ts referencing AnthropicProvider also requires lisa-mcp', () => {
+  it('static-fallback: AnthropicProvider in config requires SDK but NOT lisa-mcp (Path 1, direct SDK)', () => {
+    // Round-2 reviewer finding: previous version over-corrected by escalating
+    // lisa-mcp on any provider class reference. Direct `new AnthropicProvider(...)`
+    // is a valid Path 1 setup that doesn't spawn the lisa-mcp binary. Only
+    // LISA_LLM_PROVIDER (env-driven Path 2) or explicit AGENT_LOOP_REFS
+    // should require lisa-mcp.
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'fab-doctor-required-static-'));
     try {
       fs.writeFileSync(
         path.join(cwd, 'fabric.config.ts'),
-        `// Wired with AnthropicProvider for the agentic loop.
+        `import { AnthropicProvider } from 'synthetic-test-fabric';
+        const provider = new AnthropicProvider({ apiKey: 'x' });
         export default { adapters: {} };`,
       );
       const required = withEnv({ LISA_LLM_PROVIDER: undefined }, () => activelyRequiredPeers(cwd));
       expect(required.has('@anthropic-ai/sdk')).toBe(true);
-      expect(required.has('@kaneshir/lisa-mcp')).toBe(true);
+      expect(required.has('@kaneshir/lisa-mcp')).toBe(false);
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['OpenAIProvider', 'openai'],
+    ['GeminiProvider', '@google/generative-ai'],
+    ['ClaudeSdkProvider', '@anthropic-ai/sdk'],
+  ])('static-fallback: %s in config requires only %s, not lisa-mcp', (className, peer) => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), `fab-doctor-direct-${className}-`));
+    try {
+      fs.writeFileSync(
+        path.join(cwd, 'fabric.config.ts'),
+        `import { ${className} } from 'synthetic-test-fabric';
+        const provider = new ${className}({ apiKey: 'x' });
+        export default { adapters: {} };`,
+      );
+      const required = withEnv({ LISA_LLM_PROVIDER: undefined }, () => activelyRequiredPeers(cwd));
+      expect(required.has(peer)).toBe(true);
+      expect(required.has('@kaneshir/lisa-mcp')).toBe(false);
     } finally {
       fs.rmSync(cwd, { recursive: true, force: true });
     }

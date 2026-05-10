@@ -138,20 +138,21 @@ export function activelyRequiredPeers(cwd: string): Set<string> {
   // 2. Static text scan of fabric.config.ts (cheap, doesn't import).
   // We use this even on success-path because it catches references the
   // env scan misses, and it's our only source when loadFabricConfig fails.
+  //
+  // Provider class references (AnthropicProvider, OpenAIProvider, etc.)
+  // require the SDK only. Direct `new OpenAIProvider(...)` is a valid
+  // Path 1 setup that doesn't spawn lisa-mcp. Only the env-driven
+  // agent-loop path (LISA_LLM_PROVIDER, handled above) or explicit
+  // AGENT_LOOP_REFS imply lisa-mcp.
   const configPath = path.join(cwd, 'fabric.config.ts');
   if (fs.existsSync(configPath)) {
     try {
       const source = fs.readFileSync(configPath, 'utf8');
       for (const [marker, peer] of Object.entries(STATIC_PROVIDER_REFS)) {
-        if (source.includes(marker)) {
-          required.add(peer);
-          // Any provider class reference implies the agent-loop pathway,
-          // which spawns lisa-mcp. SDK alone is insufficient.
-          required.add(LISA_MCP_PEER);
-        }
+        if (source.includes(marker)) required.add(peer);
       }
-      // Also catch direct references to the agent-loop / lisa-mcp surface
-      // (e.g. consumers wiring buildLisaMcpCommand themselves).
+      // Direct references to the agent-loop / lisa-mcp surface — these
+      // explicitly use lisa-mcp as the binary, so escalate it.
       for (const marker of AGENT_LOOP_REFS) {
         if (source.includes(marker)) required.add(LISA_MCP_PEER);
       }
