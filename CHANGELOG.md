@@ -11,7 +11,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## [0.4.0] — agent-friendly surface
+## [0.4.0] — 2026-05-10 — agent-friendly surface
 
 The CLI surface a Claude Code (or similar) agent can drive end-to-end.
 Ships both `fab` (CLI) and `fab-mcp` (native MCP server) so agents can
