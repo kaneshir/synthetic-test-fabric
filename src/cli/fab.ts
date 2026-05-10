@@ -22,6 +22,7 @@ import {
 import { installStdoutGuard } from './stdout-guard';
 import { recordCommand, readState, getStatePath } from './state';
 import type { LastRootKind } from './state';
+import { scaffoldProject, InitConflictError } from './init';
 
 // ---------------------------------------------------------------------------
 // JSON-mode setup — must run BEFORE commander parses so unknown-command /
@@ -732,6 +733,49 @@ withJsonOptions(program
     });
 
     emitOk('inspect', summary, { runRoot: summary.loopRoot });
+  });
+
+// ---------------------------------------------------------------------------
+// init — scaffold a parseable fabric.config.ts + adapter stubs
+// ---------------------------------------------------------------------------
+
+withJsonOptions(program
+  .command('init')
+  .description('Scaffold fabric.config.ts and stub adapters into the target directory')
+  .option('--dir <path>', 'Target directory (default: cwd)')
+  .option('--force', 'Overwrite existing files'))
+  .action(async (opts) => {
+    const targetDir = opts.dir ? path.resolve(opts.dir) : process.cwd();
+
+    let result;
+    try {
+      result = scaffoldProject({ dir: targetDir, force: opts.force ?? false });
+    } catch (err) {
+      if (err instanceof InitConflictError) {
+        console.error(`[fab init] ${err.message}`);
+        for (const c of err.conflicts.slice(0, 5)) console.error(`  - ${c}`);
+        if (err.conflicts.length > 5) console.error(`  … and ${err.conflicts.length - 5} more`);
+        emitError('init', { message: err.message, code: err.code }, { runRoot: targetDir });
+      }
+      throw err;
+    }
+
+    console.log(`[fab init] Created ${result.filesCreated.length} files in ${targetDir}:`);
+    for (const f of result.filesCreated) console.log(`  + ${path.relative(targetDir, f)}`);
+    console.log(`[fab init] Next: edit src/adapters/*.ts to fill in TODOs, then \`fab smoke\`.`);
+
+    recordCommand({
+      command: 'init',
+      lastRoot: targetDir,
+      lastRootKind: 'persistent',
+      lastPhase: 'INIT',
+    });
+
+    emitOk('init', {
+      ok: true,
+      dir: targetDir,
+      filesCreated: result.filesCreated,
+    }, { runRoot: targetDir, next: `cd ${targetDir} && edit src/adapters/*.ts then fab smoke` });
   });
 
 // ---------------------------------------------------------------------------

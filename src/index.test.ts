@@ -60,4 +60,15 @@ describe('public API surface (src/index.ts)', () => {
       expectExported(name);
     });
   });
+
+  describe('project scaffolder (#21)', () => {
+    it.each([
+      'scaffoldProject',
+      'InitConflictError',
+      'InitOptions',
+      'InitResult',
+    ])('exports %s', (name) => {
+      expectExported(name);
+    });
+  });
 });
