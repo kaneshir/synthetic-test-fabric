@@ -13,6 +13,12 @@ function tmpDir(prefix: string): string {
 function tmpStateDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'fab-state-test-'));
 }
+function tmpFile(prefix: string): string {
+  const dir = tmpDir(prefix);
+  const file = path.join(dir, 'not-a-directory');
+  fs.writeFileSync(file, 'x');
+  return file;
+}
 
 function withEnv<T>(env: Record<string, string | undefined>, fn: () => T): T {
   const original: Record<string, string | undefined> = {};
@@ -57,11 +63,15 @@ describe('runDoctor — library', () => {
   });
 
   it('fails when state dir is unwritable', () => {
-    // Override FAB_STATE_DIR to a definitely-unwritable path.
-    const result = withEnv({ FAB_STATE_DIR: '/proc/1/cant-write' }, () => runDoctor({ cwd: process.cwd() }));
-    const stateCheck = result.checks.find((c) => c.name === 'state-dir');
-    expect(stateCheck?.status).toBe('fail');
-    expect(result.ok).toBe(false);
+    const stateDir = tmpFile('state-dir-file');
+    try {
+      const result = withEnv({ FAB_STATE_DIR: stateDir }, () => runDoctor({ cwd: process.cwd() }));
+      const stateCheck = result.checks.find((c) => c.name === 'state-dir');
+      expect(stateCheck?.status).toBe('fail');
+      expect(result.ok).toBe(false);
+    } finally {
+      fs.rmSync(path.dirname(stateDir), { recursive: true, force: true });
+    }
   });
 
   it('reports node-version >= 20 as ok', () => {
@@ -171,18 +181,19 @@ describe('fab doctor — CLI', () => {
   });
 
   it('emits domain-failure envelope with data.ok:false when state dir is unwritable', async () => {
-    // Note: /proc/1 exists on Linux (CI runs there) and macOS dev machines
-    // both — chmod prevents writing in either case. If a future platform
-    // makes this path actually writable, this test will need a different
-    // unwritable path.
-    const r = await runFab(['doctor', '--json'], { env: { FAB_STATE_DIR: '/proc/1/cant-write' } });
-    // Per #18 outcome taxonomy: tool ran successfully but found problems.
-    expect(r.exitCode).toBe(1);
-    const env: any = parseSingleEnvelope(r.stdout);
-    expect(env.status).toBe('ok');
-    expect(env.data.ok).toBe(false);
-    const stateCheck = env.data.checks.find((c: any) => c.name === 'state-dir');
-    expect(stateCheck.status).toBe('fail');
+    const stateDir = tmpFile('state-dir-file-cli');
+    try {
+      const r = await runFab(['doctor', '--json'], { env: { FAB_STATE_DIR: stateDir } });
+      // Per #18 outcome taxonomy: tool ran successfully but found problems.
+      expect(r.exitCode).toBe(1);
+      const env: any = parseSingleEnvelope(r.stdout);
+      expect(env.status).toBe('ok');
+      expect(env.data.ok).toBe(false);
+      const stateCheck = env.data.checks.find((c: any) => c.name === 'state-dir');
+      expect(stateCheck.status).toBe('fail');
+    } finally {
+      fs.rmSync(path.dirname(stateDir), { recursive: true, force: true });
+    }
   });
 
   it('default-tier run completes in <2s on a healthy install (when fast)', async () => {
