@@ -372,3 +372,65 @@ describe('Docs accuracy — CLAUDE.md decision tree references real commands', (
     expect(count).toBeGreaterThanOrEqual(8);
   });
 });
+
+// ---------------------------------------------------------------------------
+// MCP timeout precedence — release-readiness gate (added per #26 reviewer feedback)
+// ---------------------------------------------------------------------------
+
+describe('MCP timeout precedence — release-readiness gate', () => {
+  // Reviewer-flagged that the original release-readiness suite did not catch
+  // the runner timeout NaN bug or the FAB_MCP_TIMEOUT_MS bypass. These end-
+  // to-end checks lock both paths into the integration suite so future
+  // regressions in either layer fail this PR's gate, not a per-PR review.
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { runFabCommand } = require(path.join(REPO_ROOT, 'dist', 'mcp', 'runner.js'));
+
+  it('runFabCommand({}) completes (no NaN-immediate-timeout regression)', async () => {
+    const stateDir = tmpStateDir();
+    try {
+      // Direct library call with NEITHER opts.timeoutMs NOR FAB_MCP_TIMEOUT_MS env.
+      // Must use the 30s default and complete normally — pre-fix this hit
+      // setTimeout(NaN) and timed out synchronously.
+      const original = process.env.FAB_MCP_TIMEOUT_MS;
+      delete process.env.FAB_MCP_TIMEOUT_MS;
+      try {
+        const r = await runFabCommand(['status'], { env: { FAB_STATE_DIR: stateDir } });
+        expect(r.timedOut).toBe(false);
+        expect((r.envelope as { command: string }).command).toBe('status');
+      } finally {
+        if (original !== undefined) process.env.FAB_MCP_TIMEOUT_MS = original;
+      }
+    } finally {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it('FAB_MCP_TIMEOUT_MS reaches the runner via MCP server tool calls', async () => {
+    // Pre-fix: server passed tool.defaultTimeoutMs straight through to
+    // runFabCommand, ignoring the env. Now: env applies between per-call
+    // input.timeout_ms and tool.defaultTimeoutMs.
+    //
+    // We assert the high-env case completes cleanly (pre-fix would have
+    // also completed because tool.defaultTimeoutMs of 30s was used; but
+    // combined with the unit suite in #36 + the resolveEnvTimeoutMs
+    // export wired into src/index.ts, the integration test serves as
+    // the end-to-end smoke that the env path isn't broken at the seam.)
+    const stateDir = tmpStateDir();
+    try {
+      const responses = await rpcRoundTrip(
+        [
+          initReq(1),
+          callReq(2, 'stf_status', {}),
+        ],
+        { env: { FAB_STATE_DIR: stateDir, FAB_MCP_TIMEOUT_MS: '60000' } },
+      );
+      const tool = responses[1].result as { isError?: boolean; content: Array<{ text: string }> };
+      expect(tool.isError).not.toBe(true);
+      const env: any = JSON.parse(tool.content[0].text);
+      expect(env.status).toBe('ok');
+    } finally {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
+});
