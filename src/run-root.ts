@@ -80,21 +80,54 @@ export function detectRootKind(dir: string): RootKind {
 }
 
 /**
+ * Typed error: `detectRootKind()` returned `"ambiguous"` (a directory that
+ * could plausibly be either a loop root or an iteration root). Caller should
+ * disambiguate by passing `--kind loop` or `--kind iteration` explicitly.
+ *
+ * Surfaces via the #18 envelope as `{status: "error", error: {code: "AMBIGUOUS_ROOT"}}`.
+ */
+export class AmbiguousRootError extends Error {
+  readonly code = 'AMBIGUOUS_ROOT';
+  readonly suggestions: string[];
+  constructor(dir: string) {
+    super(`path is ambiguous (looks like both loop and iter root): ${dir}`);
+    this.name = 'AmbiguousRootError';
+    this.suggestions = [
+      `pass --kind loop to inspect as a loop root`,
+      `pass --kind iteration to inspect as a single iteration`,
+    ];
+  }
+}
+
+/**
+ * Typed error: directory exists but matches neither loop nor iteration shape.
+ *
+ * Surfaces via the #18 envelope as `{status: "error", error: {code: "UNKNOWN_ROOT"}}`.
+ */
+export class UnknownRootError extends Error {
+  readonly code = 'UNKNOWN_ROOT';
+  constructor(dir: string) {
+    super(`path does not look like a loop root or iteration root: ${dir}`);
+    this.name = 'UnknownRootError';
+  }
+}
+
+/**
  * Accept a loopRoot or iterRoot path; return the loopRoot.
  *
  * If `input` is already a loop root (detected or explicit), returns it unchanged.
  * If `input` is an iter root (e.g. `/foo/iter-002`), returns the parent.
  *
- * Throws on ambiguous or unknown inputs — callers should have classified first
- * if they want to disambiguate.
+ * Throws AmbiguousRootError / UnknownRootError so callers can branch on the
+ * typed error code.
  */
 export function resolveLoopRoot(input: string): string {
   const kind = detectRootKind(input);
   switch (kind) {
     case 'loop':       return input;
     case 'iteration':  return path.dirname(input);
-    case 'ambiguous':  throw new Error(`resolveLoopRoot: path is ambiguous (looks like both loop and iter): ${input}`);
-    case 'unknown':    throw new Error(`resolveLoopRoot: path does not look like a loop or iter root: ${input}`);
+    case 'ambiguous':  throw new AmbiguousRootError(input);
+    case 'unknown':    throw new UnknownRootError(input);
   }
 }
 
@@ -121,10 +154,234 @@ export function resolveIterRoot(input: string, iteration?: number): string {
       return latest ? path.join(input, latest) : path.join(input, 'iter-001');
     }
     case 'ambiguous':
-      throw new Error(`resolveIterRoot: path is ambiguous (looks like both loop and iter): ${input}`);
+      throw new AmbiguousRootError(input);
     case 'unknown':
-      throw new Error(`resolveIterRoot: path does not look like a loop or iter root: ${input}`);
+      throw new UnknownRootError(input);
   }
+}
+
+// ---------------------------------------------------------------------------
+// inspectRunRoot — structured summary of a loop or iteration root
+// ---------------------------------------------------------------------------
+
+/** Compact representation of a single behavior event for `fab inspect`. */
+export interface BehaviorEventSummary {
+  recorded_at: string;
+  tick: number;
+  action: string;
+  outcome: string;
+  event_kind: string;
+  screen_path: string | null;
+}
+
+export type RunPhase =
+  | 'SEED' | 'VERIFY' | 'RUN' | 'ANALYZE' | 'GENERATE_FLOWS'
+  | 'TEST' | 'SCORE' | 'FEEDBACK' | 'UNKNOWN';
+
+/**
+ * Structured summary of a run root, returned by `inspectRunRoot()`.
+ *
+ * `schemaVersion: 1` is required so future readers can detect drift.
+ * `rootKind` only ever holds `"loop"` or `"iteration"` — the `"ambiguous"` and
+ * `"unknown"` cases throw typed errors instead of returning a summary.
+ */
+export interface RunRootSummary {
+  schemaVersion: 1;
+  rootKind: 'loop' | 'iteration';
+  loopRoot: string;
+  iterRoot: string;
+  iteration: number;                          // 0 for empty loop dirs
+  phase: RunPhase;
+  score: { overall: number; dimensions: Record<string, number> } | null;
+  flows: { passed: number; failed: number; total: number } | null;
+  errors: Array<{ phase: string; message: string }>;
+  screenshotPath: string | null;
+  lastBehaviorEvents: BehaviorEventSummary[]; // last 10 from .lisa_memory/lisa.db
+  partial: boolean;                           // true if any expected artifact missing
+  parseErrors: string[];                      // non-fatal artifact parse failures
+}
+
+/**
+ * Inspect a run root and return a structured summary. Reads `fabric-score.json`,
+ * `flow-results.json`, behavior events from `.lisa_memory/lisa.db`, and the
+ * latest screenshot under `visual-results/`.
+ *
+ * Auto-detects whether `dir` is a loop root or an iteration root via
+ * `detectRootKind()`. Pass `opts.kind` to force one interpretation when
+ * the path is ambiguous.
+ *
+ * Throws on:
+ *  - non-existent path (caller surfaces as infrastructure error)
+ *  - `AmbiguousRootError` when shape is ambiguous and `opts.kind` not provided
+ *  - `UnknownRootError` when path matches neither shape
+ *
+ * Never throws on missing artifacts inside a valid root — those populate
+ * `parseErrors` and set `partial: true`.
+ */
+export function inspectRunRoot(
+  dir: string,
+  opts?: { kind?: 'loop' | 'iteration' },
+): RunRootSummary {
+  if (!fs.existsSync(dir)) {
+    throw new Error(`inspectRunRoot: path does not exist: ${dir}`);
+  }
+
+  // Resolve the kind. Caller-provided opts.kind takes precedence and bypasses
+  // the ambiguity throw.
+  let kind: 'loop' | 'iteration';
+  if (opts?.kind) {
+    kind = opts.kind;
+  } else {
+    const detected = detectRootKind(dir);
+    if (detected === 'ambiguous') throw new AmbiguousRootError(dir);
+    if (detected === 'unknown')   throw new UnknownRootError(dir);
+    kind = detected;
+  }
+
+  // Resolve loopRoot + iterRoot + iteration based on kind.
+  let loopRoot: string;
+  let iterRoot: string;
+  let iteration: number;
+
+  if (kind === 'iteration') {
+    iterRoot = path.resolve(dir);
+    loopRoot = path.dirname(iterRoot);
+    const m = path.basename(iterRoot).match(/^iter-(\d{3})$/);
+    iteration = m ? parseInt(m[1], 10) : 0;
+  } else {
+    loopRoot = path.resolve(dir);
+    const iterEntries = fs.existsSync(loopRoot)
+      ? fs.readdirSync(loopRoot).filter((e) => ITER_DIR_RE.test(e)).sort()
+      : [];
+    if (iterEntries.length === 0) {
+      // Empty loop dir — no iterations yet. Return partial summary.
+      return {
+        schemaVersion: 1,
+        rootKind: 'loop',
+        loopRoot,
+        iterRoot: path.join(loopRoot, 'iter-001'),
+        iteration: 0,
+        phase: 'UNKNOWN',
+        score: null,
+        flows: null,
+        errors: [],
+        screenshotPath: null,
+        lastBehaviorEvents: [],
+        partial: true,
+        parseErrors: ['no iteration directories found under loop root'],
+      };
+    }
+    const latest = iterEntries[iterEntries.length - 1];
+    iterRoot = path.join(loopRoot, latest);
+    iteration = parseInt(latest.slice('iter-'.length), 10);
+  }
+
+  const parseErrors: string[] = [];
+  const errors: Array<{ phase: string; message: string }> = [];
+  let partial = false;
+
+  // ── fabric-score.json ────────────────────────────────────────────
+  let score: RunRootSummary['score'] = null;
+  const scorePath = path.join(iterRoot, 'fabric-score.json');
+  if (fs.existsSync(scorePath)) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(scorePath, 'utf8'));
+      score = {
+        overall: typeof raw.overall === 'number' ? raw.overall : 0,
+        dimensions: (raw.dimensions && typeof raw.dimensions === 'object') ? raw.dimensions : {},
+      };
+    } catch (err) {
+      parseErrors.push(`fabric-score.json parse failed: ${(err as Error).message}`);
+    }
+  } else {
+    partial = true;
+  }
+
+  // ── flow-results.json ────────────────────────────────────────────
+  let flows: RunRootSummary['flows'] = null;
+  const flowsPath = path.join(iterRoot, 'flow-results.json');
+  if (fs.existsSync(flowsPath)) {
+    try {
+      const raw = JSON.parse(fs.readFileSync(flowsPath, 'utf8'));
+      const stats = raw?.stats ?? {};
+      const passed = typeof stats.expected === 'number' ? stats.expected : 0;
+      const failed = typeof stats.unexpected === 'number' ? stats.unexpected : 0;
+      const flaky = typeof stats.flaky === 'number' ? stats.flaky : 0;
+      flows = { passed, failed, total: passed + failed + flaky };
+    } catch (err) {
+      parseErrors.push(`flow-results.json parse failed: ${(err as Error).message}`);
+    }
+  }
+
+  // ── behavior events from .lisa_memory/lisa.db ─────────────────────
+  let lastBehaviorEvents: BehaviorEventSummary[] = [];
+  const dbPath = path.join(iterRoot, '.lisa_memory', 'lisa.db');
+  if (fs.existsSync(dbPath)) {
+    try {
+      // Lazy-load better-sqlite3 to keep inspectRunRoot cheap when no db exists.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const BetterSqlite3 = require('better-sqlite3');
+      const db = new BetterSqlite3(dbPath, { readonly: true, fileMustExist: true });
+      try {
+        const rows = db.prepare(
+          `SELECT recorded_at, tick, action, outcome, event_kind, screen_path
+             FROM behavior_events
+             ORDER BY recorded_at DESC, sequence_in_tick DESC
+             LIMIT 10`,
+        ).all() as BehaviorEventSummary[];
+        lastBehaviorEvents = rows;
+      } finally {
+        db.close();
+      }
+    } catch (err) {
+      parseErrors.push(`lisa.db read failed: ${(err as Error).message}`);
+    }
+  }
+
+  // ── latest screenshot ───────────────────────────────────────────
+  let screenshotPath: string | null = null;
+  const visualDir = path.join(iterRoot, 'visual-results');
+  if (fs.existsSync(visualDir)) {
+    const flowDirs = fs.readdirSync(visualDir, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name);
+    let newest: { p: string; mtime: number } | null = null;
+    for (const flow of flowDirs) {
+      const candidate = path.join(visualDir, flow, 'current.png');
+      if (fs.existsSync(candidate)) {
+        const mtime = fs.statSync(candidate).mtimeMs;
+        if (!newest || mtime > newest.mtime) newest = { p: candidate, mtime };
+      }
+    }
+    screenshotPath = newest?.p ?? null;
+  }
+
+  // ── phase inference (highest-reached heuristic) ──────────────────
+  const phase: RunPhase = (() => {
+    if (fs.existsSync(path.join(iterRoot, 'fabric-feedback.json'))) return 'FEEDBACK';
+    if (score) return 'SCORE';
+    if (flows) return 'TEST';
+    if (fs.existsSync(path.join(iterRoot, 'candidate_flows.yaml'))) return 'GENERATE_FLOWS';
+    if (lastBehaviorEvents.length > 0) return 'RUN';
+    if (fs.existsSync(path.join(iterRoot, 'mini-sim-export.json'))) return 'SEED';
+    return 'UNKNOWN';
+  })();
+
+  return {
+    schemaVersion: 1,
+    rootKind: kind,
+    loopRoot,
+    iterRoot,
+    iteration,
+    phase,
+    score,
+    flows,
+    errors,
+    screenshotPath,
+    lastBehaviorEvents,
+    partial,
+    parseErrors,
+  };
 }
 
 export const FABRIC_SEAL_FILE = '.fabric-sealed';

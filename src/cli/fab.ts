@@ -5,7 +5,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { FabricOrchestrator } from '../orchestrator';
-import { resolveLoopPaths, makeLoopId } from '../run-root';
+import { resolveLoopPaths, makeLoopId, inspectRunRoot, AmbiguousRootError, UnknownRootError } from '../run-root';
 // Mirror of the orchestrator's fallback at orchestrator.ts:111 so the CLI can
 // record the same loopRoot that orchestrator.run() will use when neither
 // --root nor defaults.loopRoot is provided.
@@ -642,12 +642,13 @@ withJsonOptions(program
     const failureLine = s.lastFailure
       ? `  failure: ${s.lastFailure.phase} — ${s.lastFailure.message}`
       : null;
-    // Only suggest a `next` action for ephemeral_deleted (last run cleaned up).
-    // Avoid pointing at `fab inspect` until #20 ships — automation following
-    // the hint would hit unknown-command otherwise.
+    // Suggest a `next` action: --keep hint when the last run was cleaned up,
+    // otherwise point at `fab inspect` (added in #20) for the preserved root.
     let next: string | undefined;
     if (s.lastRootKind === 'ephemeral_deleted') {
       next = `fab ${s.lastCommand} --keep …  (last run cleaned up; pass --keep next time to inspect it)`;
+    } else if (s.lastRoot) {
+      next = `fab inspect --root ${s.lastRoot}`;
     }
 
     console.log(`[fab status] last command: ${s.lastCommand} @ ${s.lastTimestamp}`);
@@ -657,6 +658,80 @@ withJsonOptions(program
     if (next) console.log(`  next: ${next}`);
 
     emitOk('status', { ok: true, state: 'populated', ...s }, { runRoot: s.lastRoot ?? undefined, next });
+  });
+
+// ---------------------------------------------------------------------------
+// inspect — structured summary of a loop or iteration root
+// ---------------------------------------------------------------------------
+
+withJsonOptions(program
+  .command('inspect')
+  .description('Inspect a loop or iteration root and print a structured summary')
+  .requiredOption('--root <dir>', 'Loop root or iteration root directory')
+  .option('--kind <kind>', 'Force interpretation: loop|iteration (default: auto-detect)'))
+  .action(async (opts) => {
+    if (opts.kind && opts.kind !== 'loop' && opts.kind !== 'iteration') {
+      const msg = `--kind must be 'loop' or 'iteration', got: ${opts.kind}`;
+      console.error(`[fab inspect] ${msg}`);
+      emitError('inspect', { message: msg, code: 'INVALID_KIND' });
+    }
+
+    let summary;
+    try {
+      summary = inspectRunRoot(opts.root, { kind: opts.kind });
+    } catch (err) {
+      if (err instanceof AmbiguousRootError) {
+        console.error(`[fab inspect] ${err.message}`);
+        for (const s of err.suggestions) console.error(`  → ${s}`);
+        emitError('inspect', { message: err.message, code: err.code }, { runRoot: opts.root });
+      }
+      if (err instanceof UnknownRootError) {
+        console.error(`[fab inspect] ${err.message}`);
+        emitError('inspect', { message: err.message, code: err.code }, { runRoot: opts.root });
+      }
+      // Unknown errors (path doesn't exist, permission, etc.) bubble through
+      // top-level handler.
+      throw err;
+    }
+
+    // Text-mode digest.
+    console.log(`[fab inspect] root: ${summary.loopRoot}  iter: ${summary.iteration}  kind: ${summary.rootKind}`);
+    console.log(`  phase: ${summary.phase}${summary.partial ? '  (partial)' : ''}`);
+    if (summary.score) {
+      console.log(`  score: ${summary.score.overall.toFixed(2)}`);
+    }
+    if (summary.flows) {
+      console.log(`  flows: ${summary.flows.passed}/${summary.flows.total} passed (${summary.flows.failed} failed)`);
+    }
+    if (summary.errors.length) {
+      console.log(`  errors (${summary.errors.length}):`);
+      for (const e of summary.errors.slice(0, 3)) console.log(`    ${e.phase}: ${e.message}`);
+    }
+    if (summary.lastBehaviorEvents.length) {
+      console.log(`  last ${summary.lastBehaviorEvents.length} behavior events:`);
+      for (const e of summary.lastBehaviorEvents.slice(0, 3)) {
+        console.log(`    [${e.recorded_at}] tick ${e.tick} ${e.action} → ${e.outcome}`);
+      }
+    }
+    if (summary.parseErrors.length) {
+      console.log(`  parseErrors: ${summary.parseErrors.join('; ')}`);
+    }
+    if (summary.screenshotPath) {
+      console.log(`  screenshot: ${summary.screenshotPath}`);
+    }
+
+    // Record state — inspect updates lastRoot+lastIteration so subsequent
+    // status calls reflect what was just looked at.
+    recordCommand({
+      command: 'inspect',
+      lastRoot: summary.loopRoot,
+      lastIteration: summary.iteration,
+      lastRootKind: 'persistent',
+      lastScore: summary.score?.overall ?? null,
+      lastPhase: summary.phase,
+    });
+
+    emitOk('inspect', summary, { runRoot: summary.loopRoot });
   });
 
 // ---------------------------------------------------------------------------
