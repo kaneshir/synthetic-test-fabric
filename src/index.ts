@@ -54,6 +54,13 @@ export type {
   ScaffoldAdapterOptions,
   ScaffoldAdapterResult,
 } from './cli/init';
+// Adapter validator (added in #23) — same library backs `fab adapter validate`.
+export { validateAdapter, AdapterValidateError } from './cli/adapter-validate';
+export type {
+  ValidationError,
+  ValidationResult,
+  ValidateAdapterOptions,
+} from './cli/adapter-validate';
 export type { FabricScore } from './score';
 export { parsePlaywrightResults, specFilenameToScreenPath } from './playwright-result';
 export type { PlaywrightAgentResult, PlaywrightFailedFlow } from './playwright-result';

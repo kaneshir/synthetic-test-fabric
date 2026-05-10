@@ -50,6 +50,7 @@
     "commander": "^12.1.0",
     "pixelmatch": "^7.1.0",
     "pngjs": "^7.0.0",
+    "typescript": "^5.3.3",
     "zod": "^3.25.76"
   },
   "devDependencies": {
@@ -68,8 +69,7 @@
     "jest": "^29.7.0",
     "openai": "^4.98.0",
     "ts-jest": "^29.1.2",
-    "tsx": "^4.21.0",
-    "typescript": "^5.3.3"
+    "tsx": "^4.21.0"
   },
   "license": "MIT",
   "publishConfig": {

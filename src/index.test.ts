@@ -88,4 +88,16 @@ describe('public API surface (src/index.ts)', () => {
       expectExported(name);
     });
   });
+
+  describe('adapter validator (#23)', () => {
+    it.each([
+      'validateAdapter',
+      'AdapterValidateError',
+      'ValidationError',
+      'ValidationResult',
+      'ValidateAdapterOptions',
+    ])('exports %s', (name) => {
+      expectExported(name);
+    });
+  });
 });
