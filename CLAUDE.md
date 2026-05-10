@@ -4,6 +4,37 @@ Guidance for Claude Code when working in this repository.
 
 ---
 
+## Decision tree — what to run for what intent
+
+When the user makes a request, prefer the matching `fab` command. If `fab-mcp`
+(see #27) is installed, use the corresponding `stf_*` MCP tool instead — same
+command surface, native tool calls instead of bash + JSON parsing.
+
+| User says… | Run | MCP tool |
+|------------|-----|----------|
+| "set up STF for this product" / "scaffold a fabric project" | `fab init` | `stf_init` |
+| "add a new adapter for X" / "scaffold an app/scoring/reporter adapter" | `fab adapter scaffold <type>` | `stf_adapter_scaffold` |
+| "check if my adapter is correct" / "validate this adapter file" | `fab adapter validate <path>` | `stf_adapter_validate` |
+| "is my environment set up?" / "doctor" / "diagnose CI failure" | `fab doctor` | `stf_doctor` |
+| "test the new feature" / "smoke check" | `fab smoke` | `stf_smoke` |
+| "run the full loop" / "iterate" / "score the product" | `fab orchestrate` | `stf_orchestrate` |
+| "where am I?" / "what was the last run?" | `fab status` | `stf_status` |
+| "explain this run" / "why did the score drop?" / "show last loop" | `fab inspect --root <dir>` | `stf_inspect` |
+| "score the last run" | `fab score --root <dir>` | `stf_score` |
+| "is the score above the threshold?" / "CI gate" | `fab check --threshold N` | `stf_check` |
+| "run the flows" | `fab flows --root <dir>` | `stf_flows` |
+| "manage visual baselines" | `fab baseline list/update/reset` | `stf_baseline_*` |
+
+**Always pass `--json` when scripting or when consuming the result programmatically.**
+The envelope contract is documented in `docs/cli-json-output.md`. Both `status: "error"`
+(infrastructure) and `status: "ok" + data.ok: false` (domain failure) exit with code 1 —
+key off both fields, not just one.
+
+For full agent guidance (trigger phrases, common workflows, MCP install) see
+`docs/claude-skills/skills/stf/SKILL.md`.
+
+---
+
 ## What this repo is
 
 `synthetic-test-fabric` is a public npm package. It is the orchestration
