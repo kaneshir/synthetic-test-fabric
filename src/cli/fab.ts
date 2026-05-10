@@ -865,6 +865,12 @@ withJsonOptions(adapter
 
     if (result.ok) {
       console.log(`[fab adapter validate] ✅ ${result.className} (${result.type}) — all required methods present`);
+      recordCommand({
+        command: 'adapter-validate',
+        lastRoot: path.dirname(path.resolve(filePath)),
+        lastRootKind: 'persistent',
+        lastPhase: 'VALIDATE',
+      });
       emitOk('adapter-validate', {
         ok: true,
         type: result.type,
@@ -876,6 +882,13 @@ withJsonOptions(adapter
       for (const e of result.errors) {
         console.error(`  - ${e.kind}: ${e.expected}${e.line ? ` (line ${e.line})` : ''}`);
       }
+      recordCommand({
+        command: 'adapter-validate',
+        lastRoot: path.dirname(path.resolve(filePath)),
+        lastRootKind: 'persistent',
+        lastPhase: 'VALIDATE',
+        lastFailure: { phase: 'VALIDATE', message: `${result.errors.length} validation error(s) on ${result.className}` },
+      });
       emitDomainFailure('adapter-validate', {
         ok: false,
         type: result.type,
