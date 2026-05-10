@@ -15,6 +15,13 @@ function makeStateDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'fab-state-'));
 }
 
+function makeStateFile(): string {
+  const dir = makeStateDir();
+  const file = path.join(dir, 'not-a-directory');
+  fs.writeFileSync(file, 'x');
+  return file;
+}
+
 const SAMPLE_STATE: FabState = {
   lastRoot: '/tmp/foo',
   lastIteration: 1,
@@ -183,7 +190,12 @@ describe('recordCommand', () => {
   });
 
   it('does not throw when state dir is unwritable', () => {
-    process.env.FAB_STATE_DIR = '/proc/1/cant-write-here';
-    expect(() => recordCommand({ command: 'seed' })).not.toThrow();
+    const stateDir = makeStateFile();
+    try {
+      process.env.FAB_STATE_DIR = stateDir;
+      expect(() => recordCommand({ command: 'seed' })).not.toThrow();
+    } finally {
+      fs.rmSync(path.dirname(stateDir), { recursive: true, force: true });
+    }
   });
 });
