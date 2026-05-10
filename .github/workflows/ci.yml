@@ -16,10 +16,9 @@ jobs:
   build-and-test:
     name: Build & Test
     runs-on: ubuntu-latest
-    # Floor on stuck-runner zombie state — local run is ~10s, CI typically ~60s.
-    # If a runner zombies out, fail fast instead of letting the job hang for
-    # GitHub's default 360-minute timeout.
-    timeout-minutes: 10
+    # Keep a real ceiling for stuck runners, but leave enough room for the
+    # CLI-heavy Jest suites, which spawn many tsx subprocesses on GitHub Linux.
+    timeout-minutes: 30
 
     # NOTE: matrix temporarily reduced to single Node version (was [20.x, 22.x])
     # to dodge a GitHub Actions runner-pool flakiness on this repo (Build & Test
