@@ -106,6 +106,21 @@ export function validateAdapter(
   const sourceText = fs.readFileSync(filePath, 'utf8');
   const source = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.ES2020, true);
 
+  // Surface parse errors as infrastructure failure rather than silently
+  // walking a partial AST. `parseDiagnostics` is populated by the parser at
+  // runtime — not in the public type, so cast.
+  const parseDiagnostics = (source as ts.SourceFile & { parseDiagnostics?: ts.DiagnosticWithLocation[] })
+    .parseDiagnostics ?? [];
+  if (parseDiagnostics.length > 0) {
+    const first = parseDiagnostics[0];
+    const messageText = ts.flattenDiagnosticMessageText(first.messageText, '\n');
+    const { line } = source.getLineAndCharacterOfPosition(first.start);
+    throw new AdapterValidateError(
+      `${filePath}: parse error at line ${line + 1}: ${messageText}`,
+      'SYNTAX_ERROR',
+    );
+  }
+
   // Find the first exported class declaration in the file.
   const classDecl = findExportedClass(source);
   if (!classDecl || !classDecl.name) {
@@ -129,11 +144,23 @@ export function validateAdapter(
     );
   }
 
-  // Collect declared method names on the class.
-  const declaredMethods = new Map<string, ts.MethodDeclaration>();
+  // Collect declared method names on the class. Accepts both:
+  //   - method-syntax form:  `async foo() { ... }`     → MethodDeclaration
+  //   - class-field form:    `foo = async () => ...`   → PropertyDeclaration
+  //                          `foo = function() {...}`  → PropertyDeclaration
+  // Both are valid implementations of an interface method.
+  const declaredMethods = new Map<string, ts.ClassElement>();
   for (const member of classDecl.members) {
-    if (ts.isMethodDeclaration(member) && member.name && ts.isIdentifier(member.name)) {
-      declaredMethods.set(member.name.text, member);
+    if (member.name && ts.isIdentifier(member.name)) {
+      if (ts.isMethodDeclaration(member)) {
+        declaredMethods.set(member.name.text, member);
+      } else if (
+        ts.isPropertyDeclaration(member) &&
+        member.initializer &&
+        (ts.isArrowFunction(member.initializer) || ts.isFunctionExpression(member.initializer))
+      ) {
+        declaredMethods.set(member.name.text, member);
+      }
     }
   }
 
