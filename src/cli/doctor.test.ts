@@ -5,7 +5,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import { runFab, parseSingleEnvelope } from './__test-helpers__/cli-runner';
-import { runDoctor } from './doctor';
+import { runDoctor, activelyRequiredPeers } from './doctor';
 
 function tmpDir(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), `fab-doctor-${prefix}-`));
@@ -196,6 +196,75 @@ describe('fab doctor — CLI', () => {
       expect(r.durationMs).toBeLessThan(8_000);
     } finally {
       fs.rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('activelyRequiredPeers — review-flagged regression', () => {
+  // Reviewer finding: doctor escalated the selected LISA_LLM_PROVIDER SDK
+  // peer but NOT @kaneshir/lisa-mcp, even though the agent-loop path
+  // requires lisa-mcp. Consumer could pass doctor with only a warning for
+  // lisa-mcp then fail at runtime when the loop spawns it.
+
+  it('LISA_LLM_PROVIDER=anthropic requires both the SDK AND lisa-mcp', () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'fab-doctor-required-anth-'));
+    try {
+      const required = withEnv({ LISA_LLM_PROVIDER: 'anthropic' }, () => activelyRequiredPeers(cwd));
+      expect(required.has('@anthropic-ai/sdk')).toBe(true);
+      expect(required.has('@kaneshir/lisa-mcp')).toBe(true);
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it.each(['openai', 'gemini'])('LISA_LLM_PROVIDER=%s also requires lisa-mcp', (provider) => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), `fab-doctor-required-${provider}-`));
+    try {
+      const required = withEnv({ LISA_LLM_PROVIDER: provider }, () => activelyRequiredPeers(cwd));
+      expect(required.has('@kaneshir/lisa-mcp')).toBe(true);
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('does NOT require lisa-mcp when no provider is set and no config references it', () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'fab-doctor-required-none-'));
+    try {
+      const required = withEnv({ LISA_LLM_PROVIDER: undefined }, () => activelyRequiredPeers(cwd));
+      expect(required.has('@kaneshir/lisa-mcp')).toBe(false);
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('static-fallback: fabric.config.ts referencing AnthropicProvider also requires lisa-mcp', () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'fab-doctor-required-static-'));
+    try {
+      fs.writeFileSync(
+        path.join(cwd, 'fabric.config.ts'),
+        `// Wired with AnthropicProvider for the agentic loop.
+        export default { adapters: {} };`,
+      );
+      const required = withEnv({ LISA_LLM_PROVIDER: undefined }, () => activelyRequiredPeers(cwd));
+      expect(required.has('@anthropic-ai/sdk')).toBe(true);
+      expect(required.has('@kaneshir/lisa-mcp')).toBe(true);
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('static-fallback: AgentLoopProvider reference alone requires lisa-mcp (no SDK)', () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'fab-doctor-required-aloop-'));
+    try {
+      fs.writeFileSync(
+        path.join(cwd, 'fabric.config.ts'),
+        `import { AgentLoopProvider } from 'synthetic-test-fabric';
+        export default { adapters: {} };`,
+      );
+      const required = withEnv({ LISA_LLM_PROVIDER: undefined }, () => activelyRequiredPeers(cwd));
+      expect(required.has('@kaneshir/lisa-mcp')).toBe(true);
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
     }
   });
 });

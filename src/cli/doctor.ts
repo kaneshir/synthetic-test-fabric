@@ -97,6 +97,20 @@ const STATIC_PROVIDER_REFS: Record<string, string> = {
   ClaudeSdkProvider: '@anthropic-ai/sdk',
 };
 
+/**
+ * The lisa-mcp binary is the AgentLoopProvider that hosts whichever LLM SDK
+ * is selected. If LISA_LLM_PROVIDER is set OR fabric.config.ts references any
+ * provider class / AgentLoopProvider, lisa-mcp is also required at runtime —
+ * just having the SDK isn't enough.
+ */
+const LISA_MCP_PEER = '@kaneshir/lisa-mcp';
+
+/**
+ * Substrings whose presence in fabric.config.ts implies the agent-loop
+ * pathway, which requires lisa-mcp regardless of which SDK is selected.
+ */
+const AGENT_LOOP_REFS = ['AgentLoopProvider', 'buildLisaMcpCommand', 'lisa-mcp'];
+
 // ---------------------------------------------------------------------------
 // Active-config detection
 // ---------------------------------------------------------------------------
@@ -108,13 +122,17 @@ const STATIC_PROVIDER_REFS: Record<string, string> = {
  *   2. then try `loadFabricConfig()`
  *   3. on ERR_MODULE_NOT_FOUND or other load failure, static text scan
  */
-function activelyRequiredPeers(cwd: string): Set<string> {
+export function activelyRequiredPeers(cwd: string): Set<string> {
   const required = new Set<string>();
 
   // 1. Env-scan
   const provider = process.env.LISA_LLM_PROVIDER?.trim().toLowerCase();
   if (provider && PROVIDER_TO_PEER[provider]) {
     required.add(PROVIDER_TO_PEER[provider]);
+    // lisa-mcp is the binary the agent loop spawns to host the SDK call.
+    // Required whenever LISA_LLM_PROVIDER selects a real provider — having
+    // just the SDK isn't enough.
+    required.add(LISA_MCP_PEER);
   }
 
   // 2. Static text scan of fabric.config.ts (cheap, doesn't import).
@@ -125,7 +143,17 @@ function activelyRequiredPeers(cwd: string): Set<string> {
     try {
       const source = fs.readFileSync(configPath, 'utf8');
       for (const [marker, peer] of Object.entries(STATIC_PROVIDER_REFS)) {
-        if (source.includes(marker)) required.add(peer);
+        if (source.includes(marker)) {
+          required.add(peer);
+          // Any provider class reference implies the agent-loop pathway,
+          // which spawns lisa-mcp. SDK alone is insufficient.
+          required.add(LISA_MCP_PEER);
+        }
+      }
+      // Also catch direct references to the agent-loop / lisa-mcp surface
+      // (e.g. consumers wiring buildLisaMcpCommand themselves).
+      for (const marker of AGENT_LOOP_REFS) {
+        if (source.includes(marker)) required.add(LISA_MCP_PEER);
       }
     } catch {
       // Unreadable config — still report what env told us.
