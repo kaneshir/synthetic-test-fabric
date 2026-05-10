@@ -100,4 +100,16 @@ describe('public API surface (src/index.ts)', () => {
       expectExported(name);
     });
   });
+
+  describe('doctor (#24)', () => {
+    it.each([
+      'runDoctor',
+      'DoctorCheck',
+      'DoctorResult',
+      'RunDoctorOptions',
+      'CheckStatus',
+    ])('exports %s', (name) => {
+      expectExported(name);
+    });
+  });
 });

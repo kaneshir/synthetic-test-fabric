@@ -61,6 +61,14 @@ export type {
   ValidationResult,
   ValidateAdapterOptions,
 } from './cli/adapter-validate';
+// Doctor — environment + peer-dep health check (added in #24).
+export { runDoctor } from './cli/doctor';
+export type {
+  DoctorCheck,
+  DoctorResult,
+  RunDoctorOptions,
+  CheckStatus,
+} from './cli/doctor';
 export type { FabricScore } from './score';
 export { parsePlaywrightResults, specFilenameToScreenPath } from './playwright-result';
 export type { PlaywrightAgentResult, PlaywrightFailedFlow } from './playwright-result';

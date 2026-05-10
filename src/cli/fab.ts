@@ -24,6 +24,7 @@ import { recordCommand, readState, getStatePath } from './state';
 import type { LastRootKind } from './state';
 import { scaffoldProject, InitConflictError, scaffoldAdapter, ScaffoldAdapterError, ADAPTER_TYPES, isAdapterType } from './init';
 import { validateAdapter, AdapterValidateError } from './adapter-validate';
+import { runDoctor } from './doctor';
 
 // ---------------------------------------------------------------------------
 // JSON-mode setup — must run BEFORE commander parses so unknown-command /
@@ -881,6 +882,40 @@ withJsonOptions(adapter
         className: result.className,
         errors: result.errors,
       });
+    }
+  });
+
+// ---------------------------------------------------------------------------
+// doctor — environment + peer-dep health check
+// ---------------------------------------------------------------------------
+
+withJsonOptions(program
+  .command('doctor')
+  .description('Pre-flight environment + peer-dep health check')
+  .option('--deep', 'Include heavy checks (playwright browsers, demo run)'))
+  .action(async (opts) => {
+    const result = runDoctor({ deep: opts.deep ?? false });
+
+    const symbol = (s: 'ok' | 'warn' | 'fail') => s === 'ok' ? '✅' : s === 'warn' ? '⚠️ ' : '❌';
+    console.log(`[fab doctor] ${result.ok ? '✅' : '❌'} ${result.checks.length} checks`);
+    for (const c of result.checks) {
+      console.log(`  ${symbol(c.status)} ${c.name}: ${c.message}`);
+      if (c.suggestedFix && c.status !== 'ok') {
+        console.log(`     → ${c.suggestedFix}`);
+      }
+    }
+
+    recordCommand({
+      command: 'doctor',
+      lastRoot: process.cwd(),
+      lastRootKind: 'persistent',
+      lastPhase: 'DOCTOR',
+    });
+
+    if (result.ok) {
+      emitOk('doctor', { ok: true, checks: result.checks });
+    } else {
+      emitDomainFailure('doctor', { ok: false, checks: result.checks });
     }
   });
 
