@@ -36,6 +36,9 @@ export type {
   RunRootSummary,
   BehaviorEventSummary,
 } from './run-root';
+// Project scaffolder (added in #21) — same library backs the `fab init` CLI.
+export { scaffoldProject, InitConflictError } from './cli/init';
+export type { InitOptions, InitResult } from './cli/init';
 export type { FabricScore } from './score';
 export { parsePlaywrightResults, specFilenameToScreenPath } from './playwright-result';
 export type { PlaywrightAgentResult, PlaywrightFailedFlow } from './playwright-result';
