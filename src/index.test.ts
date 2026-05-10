@@ -71,4 +71,21 @@ describe('public API surface (src/index.ts)', () => {
       expectExported(name);
     });
   });
+
+  describe('per-adapter scaffolder (#22)', () => {
+    it.each([
+      'scaffoldAdapter',
+      'ScaffoldAdapterError',
+      'ScaffoldAdapterOptions',
+      'ScaffoldAdapterResult',
+      'renderAdapterStub',
+      'isAdapterType',
+      'AdapterType',
+      'ADAPTER_TYPES',
+      'ADAPTER_INTERFACES',
+      'DEFAULT_ADAPTER_CLASS_NAMES',
+    ])('exports %s', (name) => {
+      expectExported(name);
+    });
+  });
 });

@@ -22,7 +22,7 @@ import {
 import { installStdoutGuard } from './stdout-guard';
 import { recordCommand, readState, getStatePath } from './state';
 import type { LastRootKind } from './state';
-import { scaffoldProject, InitConflictError } from './init';
+import { scaffoldProject, InitConflictError, scaffoldAdapter, ScaffoldAdapterError, ADAPTER_TYPES } from './init';
 
 // ---------------------------------------------------------------------------
 // JSON-mode setup — must run BEFORE commander parses so unknown-command /
@@ -776,6 +776,67 @@ withJsonOptions(program
       dir: targetDir,
       filesCreated: result.filesCreated,
     }, { runRoot: targetDir, next: `cd ${targetDir} && edit src/adapters/*.ts then fab smoke` });
+  });
+
+// ---------------------------------------------------------------------------
+// adapter — per-adapter scaffolding utilities
+// ---------------------------------------------------------------------------
+
+const adapter = program.command('adapter').description('Per-adapter scaffolding + validation utilities');
+
+withJsonOptions(adapter
+  .command('scaffold <type>')
+  .description(`Generate a single adapter stub. Types: ${ADAPTER_TYPES.join(', ')}`)
+  .option('--out <path>', 'Output file path (defaults to stdout)')
+  .option('--name <ClassName>', 'Override the generated class name')
+  .option('--force', 'Overwrite an existing --out file'))
+  .action(async (type: string, opts) => {
+    let result;
+    try {
+      result = scaffoldAdapter(type, {
+        out: opts.out,
+        name: opts.name,
+        force: opts.force ?? false,
+      });
+    } catch (err) {
+      if (err instanceof ScaffoldAdapterError) {
+        console.error(`[fab adapter scaffold] ${err.message}`);
+        emitError('adapter-scaffold', { message: err.message, code: err.code });
+      }
+      throw err;
+    }
+
+    if (result.filePath) {
+      console.log(`[fab adapter scaffold] Created ${result.className} (implements ${result.interfaceName}) at ${result.filePath}`);
+    } else {
+      // No --out: pipe content to stdout. Tags as `[fab adapter scaffold]`
+      // line goes to stderr in --json mode (handled by stdout-guard);
+      // here we go to stderr explicitly so the pipe target sees only the file.
+      console.error(`[fab adapter scaffold] Generated ${result.className} (implements ${result.interfaceName}) — piping to stdout`);
+      // Bypass the guard: in --json mode emitOk will write the envelope to
+      // stdout, so for --json + no --out we put content in the envelope `data.content`
+      // instead of writing it to stdout directly.
+      if (!isJsonMode()) {
+        process.stdout.write(result.content);
+      }
+    }
+
+    recordCommand({
+      command: 'adapter-scaffold',
+      lastRoot: result.filePath ? path.dirname(result.filePath) : null,
+      lastRootKind: result.filePath ? 'persistent' : null,
+      lastPhase: 'SCAFFOLD',
+    });
+
+    emitOk('adapter-scaffold', {
+      ok: true,
+      type: result.type,
+      className: result.className,
+      interfaceName: result.interfaceName,
+      filePath: result.filePath,
+      // Include content in JSON envelope when no --out was given (pipe target).
+      content: result.filePath ? undefined : result.content,
+    }, { runRoot: result.filePath ?? undefined });
   });
 
 // ---------------------------------------------------------------------------
