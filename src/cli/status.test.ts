@@ -209,6 +209,98 @@ describe('fab status — error paths', () => {
       fs.rmSync(stateDir, { recursive: true, force: true });
     }
   });
+
+  it('emits status:"error" when state file is valid JSON but wrong shape', async () => {
+    // Reviewer-flagged regression: { "lastScore": "oops" } would otherwise
+    // crash status with "s.lastScore.toFixed is not a function".
+    const stateDir = tmpStateDir();
+    try {
+      fs.writeFileSync(path.join(stateDir, 'state.json'), JSON.stringify({
+        lastScore: 'oops', lastCommand: 'x', lastTimestamp: 'y',
+      }));
+      const r = await runFab(['status', '--json'], { env: { FAB_STATE_DIR: stateDir } });
+      expect(r.exitCode).toBe(1);
+      const env: any = parseSingleEnvelope(r.stdout);
+      expect(env.status).toBe('error');
+      expect(env.error.code).toBe('STATE_FILE_UNREADABLE');
+      expect(env.error.message).toMatch(/shape invalid/);
+    } finally {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('fab status — orchestrate writeback', () => {
+  it('orchestrate without --root records the auto-generated /tmp/fabric-loop path', async () => {
+    // Reviewer-flagged regression: previously `lastRoot: opts.root ?? null`
+    // lost the auto-generated path. Now CLI pre-resolves loopRoot and records
+    // the same value the orchestrator uses.
+    const stateDir = tmpStateDir();
+    try {
+      const r = await runFab(['orchestrate', '--iterations', '1', '--ticks', '1', '--config', STUB_CONFIG], { env: { FAB_STATE_DIR: stateDir } });
+      expect(r.exitCode).toBe(0);
+
+      const status = await runFab(['status', '--json'], { env: { FAB_STATE_DIR: stateDir } });
+      const env: any = parseSingleEnvelope(status.stdout);
+      expect(env.data.lastCommand).toBe('orchestrate');
+      expect(env.data.lastRoot).toMatch(/^\/tmp\/fabric-loop\//);
+      expect(env.data.lastRootKind).toBe('persistent');
+      expect(env.data.lastIteration).toBe(1);
+      expect(env.data.lastScore).toBeCloseTo(0.85);
+
+      // Cleanup the auto-generated loop dir.
+      fs.rmSync(env.data.lastRoot, { recursive: true, force: true });
+    } finally {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it('orchestrate with --root records the explicit path', async () => {
+    const stateDir = tmpStateDir();
+    const runRoot = tmpRunRoot('orch-explicit');
+    try {
+      const r = await runFab(['orchestrate', '--iterations', '1', '--ticks', '1', '--root', runRoot, '--config', STUB_CONFIG], { env: { FAB_STATE_DIR: stateDir } });
+      expect(r.exitCode).toBe(0);
+
+      const status = await runFab(['status', '--json'], { env: { FAB_STATE_DIR: stateDir } });
+      const env: any = parseSingleEnvelope(status.stdout);
+      expect(env.data.lastRoot).toBe(runRoot);
+      expect(env.data.lastRootKind).toBe('persistent');
+    } finally {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+      fs.rmSync(runRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('fab status — next hint', () => {
+  // Reviewer-flagged regression: previously emitted `next: "fab inspect ..."`
+  // but #20 has not landed. Following the hint hits unknown-command.
+  it('does NOT suggest fab inspect for persistent-root state', async () => {
+    const stateDir = tmpStateDir();
+    const runRoot = tmpRunRoot('next-hint-persistent');
+    try {
+      await runFab(['seed', '--root', runRoot, '--config', STUB_CONFIG], { env: { FAB_STATE_DIR: stateDir } });
+      const r = await runFab(['status', '--json'], { env: { FAB_STATE_DIR: stateDir } });
+      const env: any = parseSingleEnvelope(r.stdout);
+      expect(env.next).toBeUndefined();
+    } finally {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+      fs.rmSync(runRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('suggests --keep when last run was ephemeral_deleted', async () => {
+    const stateDir = tmpStateDir();
+    try {
+      await runFab(['fresh', '--config', STUB_CONFIG], { env: { FAB_STATE_DIR: stateDir } });
+      const r = await runFab(['status', '--json'], { env: { FAB_STATE_DIR: stateDir } });
+      const env: any = parseSingleEnvelope(r.stdout);
+      expect(env.next).toMatch(/--keep/);
+    } finally {
+      fs.rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('FAB_STATE_DIR isolation', () => {

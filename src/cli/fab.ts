@@ -6,6 +6,10 @@ import * as path from 'path';
 
 import { FabricOrchestrator } from '../orchestrator';
 import { resolveLoopPaths, makeLoopId } from '../run-root';
+// Mirror of the orchestrator's fallback at orchestrator.ts:111 so the CLI can
+// record the same loopRoot that orchestrator.run() will use when neither
+// --root nor defaults.loopRoot is provided.
+const DEFAULT_ORCHESTRATE_LOOP_ROOT_PARENT = '/tmp/fabric-loop';
 import { loadFabricConfig } from './load-config';
 import {
   detectModesFromArgv,
@@ -48,6 +52,11 @@ if (isJsonMode()) {
 // Helper: every command accepts --json and --debug
 // ---------------------------------------------------------------------------
 
+// Commander passes (value, previous) to coercion callbacks. Using `parseInt`
+// directly is wrong because parseInt's second arg is `radix` — `parseInt('1', 1)`
+// returns NaN (radix 1 is unsupported). Always pass radix 10 explicitly.
+function parseIntArg(v: string): number { return parseInt(v, 10); }
+
 function withJsonOptions<T extends Command>(cmd: T): T {
   cmd.addOption(new Option('--json', 'Emit a machine-readable JSON envelope on stdout').default(false));
   cmd.addOption(new Option('--debug', 'Include stack traces in error envelopes').default(false));
@@ -82,11 +91,11 @@ program
 withJsonOptions(program
   .command('orchestrate')
   .description('Run the full SEED→VERIFY→RUN→ANALYZE→GENERATE_FLOWS→TEST→SCORE→FEEDBACK loop')
-  .option('--iterations <n>', 'Number of loop iterations', parseInt, 1)
-  .option('--ticks <n>', 'Simulation ticks per iteration', parseInt, 5)
-  .option('--seekers <n>', 'Seeker count', parseInt, 2)
-  .option('--employers <n>', 'Employer count', parseInt, 1)
-  .option('--employees <n>', 'Employee count', parseInt, 0)
+  .option('--iterations <n>', 'Number of loop iterations', parseIntArg,1)
+  .option('--ticks <n>', 'Simulation ticks per iteration', parseIntArg,5)
+  .option('--seekers <n>', 'Seeker count', parseIntArg,2)
+  .option('--employers <n>', 'Employer count', parseIntArg,1)
+  .option('--employees <n>', 'Employee count', parseIntArg,0)
   .option('--scenario <name>', 'Named scenario for the seed step')
   .option('--root <dir>', 'Persistent loop root directory (created if absent)')
   .option('--live-llm', 'Enable live LLM calls during simulation')
@@ -95,27 +104,42 @@ withJsonOptions(program
   .action(async (opts) => {
     const config = await loadFabricConfig(opts.config);
     const d = config.defaults ?? {};
+    const iterations = opts.iterations ?? d.iterations ?? 1;
+    // Pre-resolve loopRoot so we can record the same value `fab status` will
+    // surface later. If neither --root nor defaults.loopRoot is set, mirror
+    // the orchestrator's fallback (/tmp/fabric-loop/<loopId>) and pass it
+    // explicitly so we both agree on the path.
+    const loopId = makeLoopId();
+    const effectiveLoopRoot = opts.root
+      ?? d.loopRoot
+      ?? path.join(DEFAULT_ORCHESTRATE_LOOP_ROOT_PARENT, loopId);
+
     const orchestrator = new FabricOrchestrator(config.adapters);
     const score = await orchestrator.run({
-      iterations:               opts.iterations               ?? d.iterations               ?? 1,
+      iterations,
       ticks:                    opts.ticks                    ?? d.ticks                    ?? 5,
       seekers:                  opts.seekers                  ?? d.seekers                  ?? 2,
       employers:                opts.employers                ?? d.employers                ?? 1,
       employees:                opts.employees                ?? d.employees                ?? 0,
       scenarioName:             opts.scenario                 ?? d.scenarioName,
-      loopRoot:                 opts.root                     ?? d.loopRoot,
+      loopRoot:                 effectiveLoopRoot,
+      loopId,
       liveLlm:                  opts.liveLlm                  ?? d.liveLlm                  ?? false,
       allowRegressionFailures:  opts.allowRegressionFailures  ?? d.allowRegressionFailures  ?? true,
     });
     recordCommand({
       command: 'orchestrate',
-      lastRoot: opts.root ?? null,
-      lastIteration: opts.iterations ?? 1,
-      lastRootKind: opts.root ? 'persistent' : null,
+      lastRoot: effectiveLoopRoot,
+      lastIteration: iterations,
+      lastRootKind: 'persistent',
       lastScore: score.overall,
       lastPhase: 'FEEDBACK',
     });
-    emitOk('orchestrate', { score: score.overall, iterations: opts.iterations }, { runRoot: opts.root });
+    emitOk('orchestrate', {
+      score: score.overall,
+      iterations,
+      loopRoot: effectiveLoopRoot,
+    }, { runRoot: effectiveLoopRoot });
   });
 
 // ---------------------------------------------------------------------------
@@ -129,9 +153,9 @@ withJsonOptions(program
   .option('--scenario <name>', 'Named scenario for the seed step')
   .option('--root <dir>', 'Use a specific run root directory (created if absent)')
   .option('--keep', 'Keep run root on success (always kept on failure)')
-  .option('--seekers <n>', 'Seeker count', parseInt, 2)
-  .option('--employers <n>', 'Employer count', parseInt, 1)
-  .option('--employees <n>', 'Employee count', parseInt, 0)
+  .option('--seekers <n>', 'Seeker count', parseIntArg,2)
+  .option('--employers <n>', 'Employer count', parseIntArg,1)
+  .option('--employees <n>', 'Employee count', parseIntArg,0)
   .option('--config <path>', 'Path to fabric.config.ts'))
   .action(async (opts) => {
     const config = await loadFabricConfig(opts.config);
@@ -319,9 +343,9 @@ withJsonOptions(program
   .description('Seed simulation fixtures into a run root')
   .requiredOption('--root <dir>', 'Run root directory')
   .option('--scenario <name>', 'Named scenario')
-  .option('--seekers <n>', 'Seeker count', parseInt, 2)
-  .option('--employers <n>', 'Employer count', parseInt, 1)
-  .option('--employees <n>', 'Employee count', parseInt, 0)
+  .option('--seekers <n>', 'Seeker count', parseIntArg,2)
+  .option('--employers <n>', 'Employer count', parseIntArg,1)
+  .option('--employees <n>', 'Employee count', parseIntArg,0)
   .option('--config <path>', 'Path to fabric.config.ts'))
   .action(async (opts) => {
     const config = await loadFabricConfig(opts.config);
@@ -618,11 +642,12 @@ withJsonOptions(program
     const failureLine = s.lastFailure
       ? `  failure: ${s.lastFailure.phase} — ${s.lastFailure.message}`
       : null;
+    // Only suggest a `next` action for ephemeral_deleted (last run cleaned up).
+    // Avoid pointing at `fab inspect` until #20 ships — automation following
+    // the hint would hit unknown-command otherwise.
     let next: string | undefined;
     if (s.lastRootKind === 'ephemeral_deleted') {
-      next = `${s.lastCommand} --keep …  (last run cleaned up; pass --keep next time to inspect it)`;
-    } else if (s.lastRoot) {
-      next = `fab inspect --root ${s.lastRoot}`;
+      next = `fab ${s.lastCommand} --keep …  (last run cleaned up; pass --keep next time to inspect it)`;
     }
 
     console.log(`[fab status] last command: ${s.lastCommand} @ ${s.lastTimestamp}`);

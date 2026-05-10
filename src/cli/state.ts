@@ -10,6 +10,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { z } from 'zod';
 
 export type LastRootKind = 'persistent' | 'ephemeral_kept' | 'ephemeral_deleted';
 
@@ -23,6 +24,20 @@ export interface FabState {
   lastCommand: string;
   lastTimestamp: string;          // ISO8601
 }
+
+// Zod schema mirrors FabState. Used by readState() to validate that an
+// existing state file is not just parseable JSON but actually the right shape —
+// otherwise `fab status` would crash on `s.lastScore.toFixed(...)` etc.
+const FabStateSchema = z.object({
+  lastRoot:       z.string().nullable(),
+  lastIteration:  z.number().int().nullable(),
+  lastRootKind:   z.enum(['persistent', 'ephemeral_kept', 'ephemeral_deleted']).nullable(),
+  lastScore:      z.number().nullable(),
+  lastPhase:      z.string().nullable(),
+  lastFailure:    z.object({ phase: z.string(), message: z.string() }).nullable(),
+  lastCommand:    z.string(),
+  lastTimestamp:  z.string(),
+}).strict();
 
 const STATE_FILE = 'state.json';
 
@@ -47,7 +62,20 @@ export function readState(): FabState | null {
   const p = getStatePath();
   if (!fs.existsSync(p)) return null;
   const raw = fs.readFileSync(p, 'utf8');
-  return JSON.parse(raw) as FabState;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new Error(`state.json is not valid JSON: ${(err as Error).message}`);
+  }
+  const result = FabStateSchema.safeParse(parsed);
+  if (!result.success) {
+    // Surface the first issue with field path — enough for a caller to fix it.
+    const first = result.error.issues[0];
+    const where = first.path.length ? first.path.join('.') : '<root>';
+    throw new Error(`state.json shape invalid at ${where}: ${first.message}`);
+  }
+  return result.data;
 }
 
 /**
