@@ -171,21 +171,18 @@ describe('fab doctor — CLI', () => {
   });
 
   it('emits domain-failure envelope with data.ok:false when state dir is unwritable', async () => {
-    try {
-      const r = await runFab(['doctor', '--json'], { env: { FAB_STATE_DIR: '/proc/1/cant-write' } });
-      // Per #18 outcome taxonomy: tool ran successfully but found problems.
-      expect(r.exitCode).toBe(1);
-      const env: any = parseSingleEnvelope(r.stdout);
-      expect(env.status).toBe('ok');
-      expect(env.data.ok).toBe(false);
-      const stateCheck = env.data.checks.find((c: any) => c.name === 'state-dir');
-      expect(stateCheck.status).toBe('fail');
-    } catch (err) {
-      // On platforms where /proc/1 doesn't exist (macOS, Windows) the state
-      // dir check might pass for unrelated reasons. Skip with a clear note.
-      // We deliberately don't gate on platform here since CI runs on Linux.
-      throw err;
-    }
+    // Note: /proc/1 exists on Linux (CI runs there) and macOS dev machines
+    // both — chmod prevents writing in either case. If a future platform
+    // makes this path actually writable, this test will need a different
+    // unwritable path.
+    const r = await runFab(['doctor', '--json'], { env: { FAB_STATE_DIR: '/proc/1/cant-write' } });
+    // Per #18 outcome taxonomy: tool ran successfully but found problems.
+    expect(r.exitCode).toBe(1);
+    const env: any = parseSingleEnvelope(r.stdout);
+    expect(env.status).toBe('ok');
+    expect(env.data.ok).toBe(false);
+    const stateCheck = env.data.checks.find((c: any) => c.name === 'state-dir');
+    expect(stateCheck.status).toBe('fail');
   });
 
   it('default-tier run completes in <2s on a healthy install (when fast)', async () => {
