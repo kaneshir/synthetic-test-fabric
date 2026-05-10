@@ -20,8 +20,22 @@ export {
   resolveLoopPaths,
   makeLoopId,
   FABRIC_SEAL_FILE,
+  // Root-kind detection + normalization (added in #18)
+  detectRootKind,
+  resolveLoopRoot,
+  resolveIterRoot,
+  AmbiguousRootError,
+  UnknownRootError,
+  // Structured root inspection (added in #20)
+  inspectRunRoot,
 } from './run-root';
-export type { LoopIterationPaths } from './run-root';
+export type {
+  LoopIterationPaths,
+  RootKind,
+  RunPhase,
+  RunRootSummary,
+  BehaviorEventSummary,
+} from './run-root';
 export type { FabricScore } from './score';
 export { parsePlaywrightResults, specFilenameToScreenPath } from './playwright-result';
 export type { PlaywrightAgentResult, PlaywrightFailedFlow } from './playwright-result';

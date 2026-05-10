@@ -274,21 +274,10 @@ describe('fab status — orchestrate writeback', () => {
 });
 
 describe('fab status — next hint', () => {
-  // Reviewer-flagged regression: previously emitted `next: "fab inspect ..."`
-  // but #20 has not landed. Following the hint hits unknown-command.
-  it('does NOT suggest fab inspect for persistent-root state', async () => {
-    const stateDir = tmpStateDir();
-    const runRoot = tmpRunRoot('next-hint-persistent');
-    try {
-      await runFab(['seed', '--root', runRoot, '--config', STUB_CONFIG], { env: { FAB_STATE_DIR: stateDir } });
-      const r = await runFab(['status', '--json'], { env: { FAB_STATE_DIR: stateDir } });
-      const env: any = parseSingleEnvelope(r.stdout);
-      expect(env.next).toBeUndefined();
-    } finally {
-      fs.rmSync(stateDir, { recursive: true, force: true });
-      fs.rmSync(runRoot, { recursive: true, force: true });
-    }
-  });
+  // Updated for #20: now that `fab inspect` exists, the hint points at it for
+  // persistent-root state. The same-named test in inspect.test.ts asserts the
+  // restored hint; this one stays as a no-regression assertion that the
+  // ephemeral_deleted hint still works.
 
   it('suggests --keep when last run was ephemeral_deleted', async () => {
     const stateDir = tmpStateDir();
