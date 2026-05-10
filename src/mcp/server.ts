@@ -24,7 +24,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
-import { runFabCommand } from './runner';
+import { runFabCommand, resolveEnvTimeoutMs } from './runner';
 
 // ---------------------------------------------------------------------------
 // Tool registry
@@ -392,7 +392,11 @@ export function createServer(): Server {
 
     const inputObj = input as { timeout_ms?: number };
     const fabArgs = tool.buildArgs(input);
-    const timeoutMs = inputObj.timeout_ms ?? tool.defaultTimeoutMs;
+    // Precedence: per-call input.timeout_ms > FAB_MCP_TIMEOUT_MS env > tool default.
+    // Env was advertised in docs/mcp-install.md but bypassed before — the
+    // server passed tool.defaultTimeoutMs straight through, so the env never
+    // reached the runner.
+    const timeoutMs = inputObj.timeout_ms ?? resolveEnvTimeoutMs() ?? tool.defaultTimeoutMs;
 
     // Run, forwarding stderr lines as MCP log notifications so the agent
     // can see adapter progress without it polluting the result envelope.

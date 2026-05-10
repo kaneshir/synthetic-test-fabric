@@ -18,6 +18,21 @@ import * as path from 'path';
 /** Path to the bundled `fab` CLI, resolved relative to this compiled module. */
 export const FAB_CLI_PATH = path.resolve(__dirname, '..', 'cli', 'fab.js');
 
+/**
+ * Read FAB_MCP_TIMEOUT_MS env var as a positive integer, returning undefined
+ * when unset, empty, or unparseable (so the caller's fallback chain works).
+ *
+ * Exported so the MCP server can apply the env override at the server layer
+ * before passing an explicit timeoutMs into runFabCommand.
+ */
+export function resolveEnvTimeoutMs(): number | undefined {
+  const raw = process.env.FAB_MCP_TIMEOUT_MS;
+  if (!raw) return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return n;
+}
+
 export interface RunFabResult {
   /** Parsed envelope from child stdout (single JSON object per #18 contract). */
   envelope: Record<string, unknown>;
@@ -51,7 +66,10 @@ export async function runFabCommand(
   args: string[],
   opts: RunFabOptions = {},
 ): Promise<RunFabResult> {
-  const timeoutMs = opts.timeoutMs ?? Number(process.env.FAB_MCP_TIMEOUT_MS) ?? 30_000;
+  // Resolve timeout precedence: per-call > FAB_MCP_TIMEOUT_MS env > 30s default.
+  // Important: ?? only catches null/undefined, not NaN — so guard against
+  // `Number(undefined) === NaN` and unparseable env values explicitly.
+  const timeoutMs = opts.timeoutMs ?? resolveEnvTimeoutMs() ?? 30_000;
   const argv = [...args, '--json'];
 
   return new Promise<RunFabResult>((resolve, reject) => {

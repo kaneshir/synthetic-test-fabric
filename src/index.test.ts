@@ -117,6 +117,7 @@ describe('public API surface (src/index.ts)', () => {
     it.each([
       'runFabCommand',
       'FAB_CLI_PATH',
+      'resolveEnvTimeoutMs',
       'RunFabResult',
       'RunFabOptions',
       'createMcpServer',

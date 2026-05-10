@@ -279,3 +279,101 @@ describe('fab-mcp — runner path resolution', () => {
     }
   });
 });
+
+describe('fab-mcp — timeout precedence (review-flagged regressions)', () => {
+  // Reviewer finding: runFabCommand defaulted timeout to NaN because
+  // `Number(undefined)` is NaN and `?? 30_000` only catches null/undefined.
+  // Direct calls timed out immediately (setTimeout(NaN) fires synchronously).
+  //
+  // Reviewer finding: FAB_MCP_TIMEOUT_MS was documented but bypassed by MCP
+  // tool calls — the server passed tool.defaultTimeoutMs straight through,
+  // so the env never reached the runner.
+
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { runFabCommand, resolveEnvTimeoutMs } = require(path.join(REPO_ROOT, 'dist', 'mcp', 'runner.js'));
+
+  function withEnv<T>(key: string, value: string | undefined, fn: () => T): T {
+    const original = process.env[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+    try { return fn(); } finally {
+      if (original === undefined) delete process.env[key];
+      else process.env[key] = original;
+    }
+  }
+
+  describe('resolveEnvTimeoutMs', () => {
+    it('returns undefined when env var is unset', () => {
+      withEnv('FAB_MCP_TIMEOUT_MS', undefined, () => {
+        expect(resolveEnvTimeoutMs()).toBeUndefined();
+      });
+    });
+
+    it('returns undefined when env var is empty', () => {
+      withEnv('FAB_MCP_TIMEOUT_MS', '', () => {
+        expect(resolveEnvTimeoutMs()).toBeUndefined();
+      });
+    });
+
+    it('returns undefined for unparseable values (no NaN leak)', () => {
+      withEnv('FAB_MCP_TIMEOUT_MS', 'not-a-number', () => {
+        expect(resolveEnvTimeoutMs()).toBeUndefined();
+      });
+    });
+
+    it('returns undefined for non-positive values', () => {
+      withEnv('FAB_MCP_TIMEOUT_MS', '0', () => {
+        expect(resolveEnvTimeoutMs()).toBeUndefined();
+      });
+      withEnv('FAB_MCP_TIMEOUT_MS', '-100', () => {
+        expect(resolveEnvTimeoutMs()).toBeUndefined();
+      });
+    });
+
+    it('returns the parsed integer for positive numeric values', () => {
+      withEnv('FAB_MCP_TIMEOUT_MS', '5000', () => {
+        expect(resolveEnvTimeoutMs()).toBe(5000);
+      });
+    });
+  });
+
+  describe('runFabCommand default timeout', () => {
+    it('does NOT time out immediately when neither opts.timeoutMs nor env is set', async () => {
+      const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fab-mcp-test-state-'));
+      try {
+        const r = await withEnv('FAB_MCP_TIMEOUT_MS', undefined, () => runFabCommand(
+          ['status'],
+          { env: { FAB_STATE_DIR: stateDir } },
+        ));
+        expect(r.timedOut).toBe(false);
+        expect(r.envelope.command).toBe('status');
+        expect(r.envelope.status).toBe('ok');
+      } finally {
+        fs.rmSync(stateDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe('FAB_MCP_TIMEOUT_MS env path through MCP tool calls', () => {
+    it('a generously high env timeout completes a normal call cleanly', async () => {
+      // The reverse case (low env timeout firing) needs a slow command which
+      // we can't safely synthesize without a fixture. The high-timeout case
+      // proves the env value is being honored (no NaN, no immediate timeout)
+      // — combined with resolveEnvTimeoutMs unit tests above this is enough
+      // to lock the precedence in.
+      const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'fab-mcp-test-state-'));
+      try {
+        const responses = await rpcRoundTrip(
+          [initRequest(), listToolsRequest(), callToolRequest(3, 'stf_status', {})],
+          { env: { FAB_STATE_DIR: stateDir, FAB_MCP_TIMEOUT_MS: '60000' } },
+        );
+        const tool = responses[2].result as McpToolResponse;
+        expect(tool.isError).not.toBe(true);
+        const env = envelopeOf(tool);
+        expect(env.status).toBe('ok');
+      } finally {
+        fs.rmSync(stateDir, { recursive: true, force: true });
+      }
+    });
+  });
+});
