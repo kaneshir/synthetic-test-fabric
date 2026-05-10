@@ -21,9 +21,13 @@ jobs:
     # GitHub's default 360-minute timeout.
     timeout-minutes: 10
 
+    # NOTE: matrix temporarily reduced to single Node version (was [20.x, 22.x])
+    # to dodge a GitHub Actions runner-pool flakiness on this repo (Build & Test
+    # jobs were getting allocated runners that never executed any work, hitting
+    # the 10-min timeout every run). Restore [20.x, 22.x] once the pool is stable.
     strategy:
       matrix:
-        node-version: [20.x, 22.x]
+        node-version: [20.x]
 
     steps:
       - uses: actions/checkout@v4
