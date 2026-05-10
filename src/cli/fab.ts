@@ -6,6 +6,10 @@ import * as path from 'path';
 
 import { FabricOrchestrator } from '../orchestrator';
 import { resolveLoopPaths, makeLoopId } from '../run-root';
+// Mirror of the orchestrator's fallback at orchestrator.ts:111 so the CLI can
+// record the same loopRoot that orchestrator.run() will use when neither
+// --root nor defaults.loopRoot is provided.
+const DEFAULT_ORCHESTRATE_LOOP_ROOT_PARENT = '/tmp/fabric-loop';
 import { loadFabricConfig } from './load-config';
 import {
   detectModesFromArgv,
@@ -16,6 +20,8 @@ import {
   isJsonMode,
 } from './json-envelope';
 import { installStdoutGuard } from './stdout-guard';
+import { recordCommand, readState, getStatePath } from './state';
+import type { LastRootKind } from './state';
 
 // ---------------------------------------------------------------------------
 // JSON-mode setup — must run BEFORE commander parses so unknown-command /
@@ -45,6 +51,11 @@ if (isJsonMode()) {
 // ---------------------------------------------------------------------------
 // Helper: every command accepts --json and --debug
 // ---------------------------------------------------------------------------
+
+// Commander passes (value, previous) to coercion callbacks. Using `parseInt`
+// directly is wrong because parseInt's second arg is `radix` — `parseInt('1', 1)`
+// returns NaN (radix 1 is unsupported). Always pass radix 10 explicitly.
+function parseIntArg(v: string): number { return parseInt(v, 10); }
 
 function withJsonOptions<T extends Command>(cmd: T): T {
   cmd.addOption(new Option('--json', 'Emit a machine-readable JSON envelope on stdout').default(false));
@@ -80,11 +91,11 @@ program
 withJsonOptions(program
   .command('orchestrate')
   .description('Run the full SEED→VERIFY→RUN→ANALYZE→GENERATE_FLOWS→TEST→SCORE→FEEDBACK loop')
-  .option('--iterations <n>', 'Number of loop iterations', parseInt, 1)
-  .option('--ticks <n>', 'Simulation ticks per iteration', parseInt, 5)
-  .option('--seekers <n>', 'Seeker count', parseInt, 2)
-  .option('--employers <n>', 'Employer count', parseInt, 1)
-  .option('--employees <n>', 'Employee count', parseInt, 0)
+  .option('--iterations <n>', 'Number of loop iterations', parseIntArg,1)
+  .option('--ticks <n>', 'Simulation ticks per iteration', parseIntArg,5)
+  .option('--seekers <n>', 'Seeker count', parseIntArg,2)
+  .option('--employers <n>', 'Employer count', parseIntArg,1)
+  .option('--employees <n>', 'Employee count', parseIntArg,0)
   .option('--scenario <name>', 'Named scenario for the seed step')
   .option('--root <dir>', 'Persistent loop root directory (created if absent)')
   .option('--live-llm', 'Enable live LLM calls during simulation')
@@ -93,19 +104,42 @@ withJsonOptions(program
   .action(async (opts) => {
     const config = await loadFabricConfig(opts.config);
     const d = config.defaults ?? {};
+    const iterations = opts.iterations ?? d.iterations ?? 1;
+    // Pre-resolve loopRoot so we can record the same value `fab status` will
+    // surface later. If neither --root nor defaults.loopRoot is set, mirror
+    // the orchestrator's fallback (/tmp/fabric-loop/<loopId>) and pass it
+    // explicitly so we both agree on the path.
+    const loopId = makeLoopId();
+    const effectiveLoopRoot = opts.root
+      ?? d.loopRoot
+      ?? path.join(DEFAULT_ORCHESTRATE_LOOP_ROOT_PARENT, loopId);
+
     const orchestrator = new FabricOrchestrator(config.adapters);
     const score = await orchestrator.run({
-      iterations:               opts.iterations               ?? d.iterations               ?? 1,
+      iterations,
       ticks:                    opts.ticks                    ?? d.ticks                    ?? 5,
       seekers:                  opts.seekers                  ?? d.seekers                  ?? 2,
       employers:                opts.employers                ?? d.employers                ?? 1,
       employees:                opts.employees                ?? d.employees                ?? 0,
       scenarioName:             opts.scenario                 ?? d.scenarioName,
-      loopRoot:                 opts.root                     ?? d.loopRoot,
+      loopRoot:                 effectiveLoopRoot,
+      loopId,
       liveLlm:                  opts.liveLlm                  ?? d.liveLlm                  ?? false,
       allowRegressionFailures:  opts.allowRegressionFailures  ?? d.allowRegressionFailures  ?? true,
     });
-    emitOk('orchestrate', { score: score.overall, iterations: opts.iterations }, { runRoot: opts.root });
+    recordCommand({
+      command: 'orchestrate',
+      lastRoot: effectiveLoopRoot,
+      lastIteration: iterations,
+      lastRootKind: 'persistent',
+      lastScore: score.overall,
+      lastPhase: 'FEEDBACK',
+    });
+    emitOk('orchestrate', {
+      score: score.overall,
+      iterations,
+      loopRoot: effectiveLoopRoot,
+    }, { runRoot: effectiveLoopRoot });
   });
 
 // ---------------------------------------------------------------------------
@@ -119,9 +153,9 @@ withJsonOptions(program
   .option('--scenario <name>', 'Named scenario for the seed step')
   .option('--root <dir>', 'Use a specific run root directory (created if absent)')
   .option('--keep', 'Keep run root on success (always kept on failure)')
-  .option('--seekers <n>', 'Seeker count', parseInt, 2)
-  .option('--employers <n>', 'Employer count', parseInt, 1)
-  .option('--employees <n>', 'Employee count', parseInt, 0)
+  .option('--seekers <n>', 'Seeker count', parseIntArg,2)
+  .option('--employers <n>', 'Employer count', parseIntArg,1)
+  .option('--employees <n>', 'Employee count', parseIntArg,0)
   .option('--config <path>', 'Path to fabric.config.ts'))
   .action(async (opts) => {
     const config = await loadFabricConfig(opts.config);
@@ -135,10 +169,13 @@ withJsonOptions(program
     let success = false;
     let flowsResult: { passed: number; failed: number; total: number } | null = null;
     let scoreResult: number | null = null;
+    let lastPhase: string | null = null;
+    let lastFailure: { phase: string; message: string } | null = null;
 
     try {
       console.log(`[fab fresh] Run root: ${runRoot}`);
 
+      lastPhase = 'SEED';
       console.log('[fab fresh] → SEED');
       await config.adapters.app.seed(iterPaths.iterRoot, {
         seekers: opts.seekers,
@@ -147,10 +184,12 @@ withJsonOptions(program
         scenarioName: opts.scenario,
       });
 
+      lastPhase = 'VERIFY';
       console.log('[fab fresh] → VERIFY');
       await config.adapters.app.verify(iterPaths.iterRoot);
 
       if (opts.flows) {
+        lastPhase = 'TEST';
         console.log('[fab fresh] → FLOWS');
         const result = await config.adapters.browser.runSpecs({
           iterRoot: iterPaths.iterRoot,
@@ -162,9 +201,11 @@ withJsonOptions(program
       }
 
       if (opts.plan) {
+        lastPhase = 'SCORE';
         console.log('[fab fresh] → SCORE');
         const score = await config.adapters.scoring.score(iterPaths.iterRoot);
         scoreResult = score.overall;
+        lastPhase = 'FEEDBACK';
         console.log('[fab fresh] → FEEDBACK');
         await config.adapters.feedback.feedback(iterPaths.iterRoot, {
           score,
@@ -179,12 +220,31 @@ withJsonOptions(program
 
       success = true;
       console.log(`[fab fresh] Done. Root: ${runRoot}`);
+    } catch (err) {
+      lastFailure = { phase: lastPhase ?? 'UNKNOWN', message: (err as Error).message };
+      throw err;
     } finally {
       if (!success) {
         console.log(`[fab fresh] Failed. Run root preserved: ${runRoot}`);
       } else if (!opts.keep && !explicitRoot) {
         fs.rmSync(runRoot, { recursive: true, force: true });
       }
+
+      // Record state for `fab status` — fires on both success and failure paths.
+      const ephemeral = !explicitRoot;
+      const cleanedUp = success && ephemeral && !opts.keep;
+      const rootKind: LastRootKind = ephemeral
+        ? (cleanedUp ? 'ephemeral_deleted' : 'ephemeral_kept')
+        : 'persistent';
+      recordCommand({
+        command: 'fresh',
+        lastRoot: cleanedUp ? null : runRoot,
+        lastIteration: 1,
+        lastRootKind: rootKind,
+        lastScore: scoreResult,
+        lastPhase,
+        lastFailure,
+      });
     }
 
     emitOk('fresh', {
@@ -216,10 +276,13 @@ withJsonOptions(program
 
     let success = false;
     let result: { passed: number; failed: number; total: number } | null = null;
+    let lastPhase: string | null = null;
+    let lastFailure: { phase: string; message: string } | null = null;
 
     try {
       console.log(`[fab smoke] Run root: ${runRoot}`);
 
+      lastPhase = 'SEED';
       console.log('[fab smoke] → SEED');
       await config.adapters.app.seed(iterPaths.iterRoot, {
         seekers: 1,
@@ -227,9 +290,11 @@ withJsonOptions(program
         employees: 0,
       });
 
+      lastPhase = 'VERIFY';
       console.log('[fab smoke] → VERIFY');
       await config.adapters.app.verify(iterPaths.iterRoot);
 
+      lastPhase = 'TEST';
       console.log('[fab smoke] → SMOKE FLOW');
       const r = await config.adapters.browser.runSpecs({
         iterRoot: iterPaths.iterRoot,
@@ -241,12 +306,29 @@ withJsonOptions(program
 
       success = true;
       console.log('[fab smoke] Passed.');
+    } catch (err) {
+      lastFailure = { phase: lastPhase ?? 'UNKNOWN', message: (err as Error).message };
+      throw err;
     } finally {
       if (!success) {
         console.log(`[fab smoke] Failed. Run root preserved: ${runRoot}`);
       } else if (!opts.keep && !explicitRoot) {
         fs.rmSync(runRoot, { recursive: true, force: true });
       }
+
+      const ephemeral = !explicitRoot;
+      const cleanedUp = success && ephemeral && !opts.keep;
+      const rootKind: LastRootKind = ephemeral
+        ? (cleanedUp ? 'ephemeral_deleted' : 'ephemeral_kept')
+        : 'persistent';
+      recordCommand({
+        command: 'smoke',
+        lastRoot: cleanedUp ? null : runRoot,
+        lastIteration: 1,
+        lastRootKind: rootKind,
+        lastPhase,
+        lastFailure,
+      });
     }
 
     emitOk('smoke', { root: runRoot, keep: opts.keep ?? false, explicitRoot, flows: result }, { runRoot });
@@ -261,9 +343,9 @@ withJsonOptions(program
   .description('Seed simulation fixtures into a run root')
   .requiredOption('--root <dir>', 'Run root directory')
   .option('--scenario <name>', 'Named scenario')
-  .option('--seekers <n>', 'Seeker count', parseInt, 2)
-  .option('--employers <n>', 'Employer count', parseInt, 1)
-  .option('--employees <n>', 'Employee count', parseInt, 0)
+  .option('--seekers <n>', 'Seeker count', parseIntArg,2)
+  .option('--employers <n>', 'Employer count', parseIntArg,1)
+  .option('--employees <n>', 'Employee count', parseIntArg,0)
   .option('--config <path>', 'Path to fabric.config.ts'))
   .action(async (opts) => {
     const config = await loadFabricConfig(opts.config);
@@ -277,6 +359,7 @@ withJsonOptions(program
       scenarioName: opts.scenario,
     });
     console.log(`[fab seed] Done. Root: ${opts.root}`);
+    recordCommand({ command: 'seed', lastRoot: opts.root, lastIteration: 1, lastRootKind: 'persistent', lastPhase: 'SEED' });
     emitOk('seed', { root: opts.root }, { runRoot: opts.root });
   });
 
@@ -290,6 +373,7 @@ withJsonOptions(program
     const iterPaths = resolveLoopPaths(opts.root, 1);
     await config.adapters.app.verify(iterPaths.iterRoot);
     console.log('[fab verify] OK');
+    recordCommand({ command: 'verify', lastRoot: opts.root, lastIteration: 1, lastRootKind: 'persistent', lastPhase: 'VERIFY' });
     emitOk('verify', { root: opts.root }, { runRoot: opts.root });
   });
 
@@ -312,6 +396,11 @@ withJsonOptions(program
     console.log(`[fab flows] ${result.passed}/${result.total} passed`);
     if (result.failed > 0) {
       // Domain failure: tool ran successfully, found failing flows.
+      recordCommand({
+        command: 'flows', lastRoot: opts.root, lastIteration: 1, lastRootKind: 'persistent',
+        lastPhase: 'TEST',
+        lastFailure: { phase: 'TEST', message: `${result.failed}/${result.total} flows failed` },
+      });
       emitDomainFailure('flows', {
         ok: false,
         passed: result.passed,
@@ -319,6 +408,7 @@ withJsonOptions(program
         total: result.total,
       }, { runRoot: opts.root });
     }
+    recordCommand({ command: 'flows', lastRoot: opts.root, lastIteration: 1, lastRootKind: 'persistent', lastPhase: 'TEST' });
     emitOk('flows', { ok: true, passed: result.passed, failed: result.failed, total: result.total }, { runRoot: opts.root });
   });
 
@@ -335,6 +425,10 @@ withJsonOptions(program
       await r.report(score, iterPaths.iterRoot).catch(() => {});
     }
     console.log(`[fab score] Overall: ${score.overall}`);
+    recordCommand({
+      command: 'score', lastRoot: opts.root, lastIteration: 1, lastRootKind: 'persistent',
+      lastScore: score.overall, lastPhase: 'SCORE',
+    });
     emitOk('score', { overall: score.overall, dimensions: score.dimensions }, { runRoot: opts.root });
   });
 
@@ -349,6 +443,10 @@ withJsonOptions(program
     if (!fs.existsSync(iterPaths.fabricScorePath)) {
       const msg = `[fab feedback] fabric-score.json not found — run \`fab score\` first`;
       console.error(msg);
+      recordCommand({
+        command: 'feedback', lastRoot: opts.root, lastIteration: 1, lastRootKind: 'persistent',
+        lastFailure: { phase: 'FEEDBACK', message: msg },
+      });
       emitError('feedback', { message: msg, code: 'SCORE_FILE_MISSING' }, { runRoot: opts.root });
     }
     const score = JSON.parse(fs.readFileSync(iterPaths.fabricScorePath, 'utf8'));
@@ -359,6 +457,7 @@ withJsonOptions(program
       previousIterRoot: null,
     });
     console.log('[fab feedback] Done.');
+    recordCommand({ command: 'feedback', lastRoot: opts.root, lastIteration: 1, lastRootKind: 'persistent', lastPhase: 'FEEDBACK' });
     emitOk('feedback', { root: opts.root }, { runRoot: opts.root });
   });
 
@@ -376,6 +475,7 @@ withJsonOptions(program
       allowFailures: true,
     });
     console.log('[fab analyze] Done.');
+    recordCommand({ command: 'analyze', lastRoot: opts.root, lastIteration: 1, lastRootKind: 'persistent', lastPhase: 'ANALYZE' });
     emitOk('analyze', { root: opts.root }, { runRoot: opts.root });
   });
 
@@ -471,6 +571,10 @@ withJsonOptions(program
       // Infrastructure error: the command can't run because the input file is missing.
       console.error(`[fab check] fabric-score.json not found at ${scorePath}`);
       console.error('  Run `fab score --root <dir>` first.');
+      recordCommand({
+        command: 'check', lastRoot: opts.root, lastIteration: 1, lastRootKind: 'persistent',
+        lastFailure: { phase: 'CHECK', message: `fabric-score.json not found at ${scorePath}` },
+      });
       emitError('check', {
         message: `fabric-score.json not found at ${scorePath}`,
         code: 'SCORE_FILE_MISSING',
@@ -481,11 +585,20 @@ withJsonOptions(program
     try {
       assertScoreThreshold(score, opts.threshold);
       console.log(`[fab check] ✅ Score ${score.overall.toFixed(1)} ≥ threshold ${opts.threshold.toFixed(1)}`);
+      recordCommand({
+        command: 'check', lastRoot: opts.root, lastIteration: 1, lastRootKind: 'persistent',
+        lastScore: score.overall, lastPhase: 'CHECK',
+      });
       emitOk('check', { ok: true, score: score.overall, threshold: opts.threshold }, { runRoot: opts.root });
     } catch (err: unknown) {
       const message = (err as Error).message;
       // Domain failure: command ran successfully and found the score below threshold.
       console.error(`[fab check] ❌ ${message}`);
+      recordCommand({
+        command: 'check', lastRoot: opts.root, lastIteration: 1, lastRootKind: 'persistent',
+        lastScore: score.overall, lastPhase: 'CHECK',
+        lastFailure: { phase: 'CHECK', message },
+      });
       emitDomainFailure('check', {
         ok: false,
         score: score.overall,
@@ -493,6 +606,57 @@ withJsonOptions(program
         message,
       }, { runRoot: opts.root });
     }
+  });
+
+// ---------------------------------------------------------------------------
+// status — show last-command summary from ~/.fab/state.json
+// ---------------------------------------------------------------------------
+
+withJsonOptions(program
+  .command('status')
+  .description('Show the most recent fab command outcome (reads ~/.fab/state.json)'))
+  .action(async () => {
+    let state;
+    try {
+      state = readState();
+    } catch (err: unknown) {
+      // Corrupt or unreadable state file — surface as infrastructure error.
+      const message = (err as Error).message;
+      console.error(`[fab status] state file unreadable: ${message}`);
+      emitError('status', {
+        message: `state file unreadable at ${getStatePath()}: ${message}`,
+        code: 'STATE_FILE_UNREADABLE',
+      });
+    }
+
+    if (state === null) {
+      console.log('[fab status] no runs yet');
+      emitOk('status', { ok: true, state: 'empty' });
+    }
+
+    // Populated state — print 5-line digest in text mode, full envelope in --json mode.
+    const s = state!;
+    const rootDisplay = s.lastRoot ?? '(cleaned up)';
+    const phaseDisplay = s.lastPhase ?? '(unknown)';
+    const scoreDisplay = s.lastScore != null ? s.lastScore.toFixed(2) : '(none)';
+    const failureLine = s.lastFailure
+      ? `  failure: ${s.lastFailure.phase} — ${s.lastFailure.message}`
+      : null;
+    // Only suggest a `next` action for ephemeral_deleted (last run cleaned up).
+    // Avoid pointing at `fab inspect` until #20 ships — automation following
+    // the hint would hit unknown-command otherwise.
+    let next: string | undefined;
+    if (s.lastRootKind === 'ephemeral_deleted') {
+      next = `fab ${s.lastCommand} --keep …  (last run cleaned up; pass --keep next time to inspect it)`;
+    }
+
+    console.log(`[fab status] last command: ${s.lastCommand} @ ${s.lastTimestamp}`);
+    console.log(`  root: ${rootDisplay} (${s.lastRootKind ?? 'n/a'})`);
+    console.log(`  phase: ${phaseDisplay}   score: ${scoreDisplay}`);
+    if (failureLine) console.log(failureLine);
+    if (next) console.log(`  next: ${next}`);
+
+    emitOk('status', { ok: true, state: 'populated', ...s }, { runRoot: s.lastRoot ?? undefined, next });
   });
 
 // ---------------------------------------------------------------------------

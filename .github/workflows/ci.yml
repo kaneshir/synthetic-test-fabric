@@ -6,14 +6,28 @@ on:
   pull_request:
     branches: [develop, main]
 
+# Cancel obsolete in-progress runs when a newer commit lands on the same ref.
+# Prevents queue pile-up across rapid pushes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
     name: Build & Test
     runs-on: ubuntu-latest
+    # Floor on stuck-runner zombie state — local run is ~10s, CI typically ~60s.
+    # If a runner zombies out, fail fast instead of letting the job hang for
+    # GitHub's default 360-minute timeout.
+    timeout-minutes: 10
 
+    # NOTE: matrix temporarily reduced to single Node version (was [20.x, 22.x])
+    # to dodge a GitHub Actions runner-pool flakiness on this repo (Build & Test
+    # jobs were getting allocated runners that never executed any work, hitting
+    # the 10-min timeout every run). Restore [20.x, 22.x] once the pool is stable.
     strategy:
       matrix:
-        node-version: [20.x, 22.x]
+        node-version: [20.x]
 
     steps:
       - uses: actions/checkout@v4
@@ -37,6 +51,7 @@ jobs:
     name: Demo (full loop)
     runs-on: ubuntu-latest
     needs: build-and-test
+    timeout-minutes: 15  # demo run itself capped at 5min; gives buffer for browser install
 
     steps:
       - uses: actions/checkout@v4
@@ -68,6 +83,7 @@ jobs:
   lint:
     name: Lint & Package Checks
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4
