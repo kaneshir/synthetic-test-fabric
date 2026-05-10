@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import BetterSqlite3 from 'better-sqlite3';
 
 export interface LoopIterationPaths {
   iterRoot: string;
@@ -318,9 +319,6 @@ export function inspectRunRoot(
   const dbPath = path.join(iterRoot, '.lisa_memory', 'lisa.db');
   if (fs.existsSync(dbPath)) {
     try {
-      // Lazy-load better-sqlite3 to keep inspectRunRoot cheap when no db exists.
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const BetterSqlite3 = require('better-sqlite3');
       const db = new BetterSqlite3(dbPath, { readonly: true, fileMustExist: true });
       try {
         const rows = db.prepare(
