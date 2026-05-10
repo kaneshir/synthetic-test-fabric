@@ -383,7 +383,7 @@ describe('MCP timeout precedence — release-readiness gate', () => {
   // to-end checks lock both paths into the integration suite so future
   // regressions in either layer fail this PR's gate, not a per-PR review.
 
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { runFabCommand } = require(path.join(REPO_ROOT, 'dist', 'mcp', 'runner.js'));
 
   it('runFabCommand({}) completes (no NaN-immediate-timeout regression)', async () => {
