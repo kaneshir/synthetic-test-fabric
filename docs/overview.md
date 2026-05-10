@@ -74,15 +74,15 @@ scripts and CI. Outcome envelope is documented in
 [cli-json-output.md](./cli-json-output.md).
 
 ```bash
-fab init        # scaffold a new project
-fab smoke       # bounded check
-fab orchestrate # full loop
-fab status      # cross-run state
-fab inspect     # structured run-root summary
-fab doctor      # env + peer-dep health check
-fab adapter scaffold <type>     # generate one stub
-fab adapter validate <path>      # type-check it against the interface
-fab check --threshold N          # CI score gate
+fab init                              # scaffold a new project
+fab smoke                             # bounded check
+fab orchestrate                       # full loop
+fab status                            # cross-run state
+fab inspect --root <dir>              # structured run-root summary
+fab doctor                            # env + peer-dep health check
+fab adapter scaffold <type>           # generate one stub
+fab adapter validate <path>           # type-check it against the interface
+fab check --root <dir> --threshold N  # CI score gate
 ```
 
 **2. MCP server (`fab-mcp`)** — exposes every command as a typed `stf_*` tool

@@ -146,7 +146,7 @@ Full changelog: [CHANGELOG.md](CHANGELOG.md).
 |---------|-----------|
 | **Flakiness tracking** | `FlakinessTracker` persists per-flow failure rates; failing flows get quarantined automatically |
 | **Adversarial personas** | Set `adversarial: true` in persona YAML; the agent probes validation gaps and unauthorized routes |
-| **CI score gate** | `fab check --threshold 8.0 --json` — exit 1 + `data.ok: false` on threshold failure |
+| **CI score gate** | `fab check --root <loop> --threshold 8.0 --json` — exit 1 + `data.ok: false` on threshold failure |
 | **Slack reporting** | `SlackReporter` posts a score summary + dimension breakdown to any webhook |
 | **Visual regression** | `VisualRegression.capture/compare` with pixelmatch; baselines managed via `fab baseline` |
 | **HTML trend report** | `HtmlReporter` generates a self-contained report with Chart.js trend across the last 30 iterations |
