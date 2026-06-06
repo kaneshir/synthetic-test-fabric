@@ -11,6 +11,136 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.4.0] — 2026-05-10 — agent-friendly surface
+
+The CLI surface a Claude Code (or similar) agent can drive end-to-end.
+Ships both `fab` (CLI) and `fab-mcp` (native MCP server) so agents can
+use whichever transport is available — same envelope contract on either side.
+
+### Added — CLI
+
+- **`fab status`** (#19) — cross-run state from `~/.fab/state.json`
+- **`fab inspect`** (#20) — structured `RunRootSummary` with strict
+  `AmbiguousRootError` / `UnknownRootError` typed errors and SQLite
+  behavior-event reads
+- **`fab init`** (#21) — scaffold a parseable `fabric.config.ts` + 8 adapter stubs
+- **`fab adapter scaffold <type>`** (#22) — generate one stub on demand for
+  any of the 8 adapter types
+- **`fab adapter validate <path>`** (#23) — type-check an adapter file
+  against its target interface (method-presence detection via TS Compiler API)
+- **`fab doctor`** (#24) — pre-flight env + peer-dep health check, with
+  default vs `--deep` tiers and active-config-aware peer escalation
+
+### Added — `--json` envelope contract (#18)
+
+Every command accepts `--json` and emits exactly one envelope on stdout
+(documented in `docs/cli-json-output.md`):
+
+| Outcome | Envelope | Exit |
+|---------|----------|------|
+| Success | `{status: "ok", data: {ok: true, ...}}` | 0 |
+| Domain failure | `{status: "ok", data: {ok: false, ...}}` | 1 |
+| Infrastructure error | `{status: "error", error: {message, code?}}` | 1 |
+
+**Caller contract**: read both the exit code AND the envelope fields.
+`status` describes infrastructure outcome; `data.ok` describes domain
+outcome where applicable.
+
+### Added — MCP server (#27)
+
+- **`fab-mcp`** binary — Model Context Protocol server wrapping every `fab`
+  command as a typed `stf_*` tool (19 tools total)
+- Subprocess wrapper preserves the CLI envelope contract end-to-end
+- Per-tool zod schemas, per-tier timeouts (30s / 2min / 5min / 30min),
+  `FAB_MCP_TIMEOUT_MS` env override
+- Stderr forwarded as MCP `notifications/message` log lines so adapter
+  progress reaches the agent without contaminating the result envelope
+- Path resolution relative to module — works from any consumer cwd
+- See `docs/mcp-install.md` for installation snippets
+
+### Added — Library exports
+
+`scaffoldProject`, `scaffoldAdapter`, `validateAdapter`, `runDoctor`,
+`inspectRunRoot`, `runFabCommand`, `createMcpServer`, plus typed errors
+(`AmbiguousRootError`, `UnknownRootError`, `InitConflictError`,
+`AdapterValidateError`, `ScaffoldAdapterError`, `FabError`) and helper
+constants (`ADAPTER_TYPES`, `ADAPTER_INTERFACES`, `TOOL_NAMES`, etc.).
+
+### Added — Agent-side install (#25)
+
+- Decision tree in root `CLAUDE.md` (additive — preserves existing repo
+  guidance) mapping ~12 user intents to both `fab` commands and `stf_*`
+  MCP tools
+- New skill at `docs/claude-skills/skills/stf/SKILL.md`
+- New agent stub at `docs/claude-skills/agents/stf-runner.md` (Haiku, read-only)
+
+### Changed
+
+- `typescript` moved from `devDependencies` → `dependencies` (runtime use
+  by `fab adapter validate`)
+- `@modelcontextprotocol/sdk@^1` added as a direct runtime dep
+- `commander` `parseInt` callback bug fixed — every numeric flag had been
+  passing `NaN` to its action since the original CLI shipped (latent bug
+  surfaced by the orchestrate writeback test in #19)
+- `fab adapter validate` now records into state (was missing; surfaced by
+  #26 integration tests)
+- CI workflow: `concurrency: cancel-in-progress`, `timeout-minutes`,
+  `--runInBand --testTimeout=15000`, single-Node matrix temporarily
+  (TODO: restore [20.x, 22.x] when GH runner pool stabilizes)
+
+### Verified by #26 release-readiness suite
+
+- E2E CLI flow: `init → adapter scaffold → adapter validate → doctor → status`
+- E2E MCP flow: same chain via `fab-mcp` stdio
+- `npm pack` + install in temp consumer dir + `npx fab-mcp` round-trip
+  from outside package root (path-resolution canary)
+- Backward-compat text-mode framing snapshots from #18 still pass
+- Static taxonomy lint: no command emits `status: "error"` for an expected
+  domain failure
+- Decision-tree → real-tool docs accuracy
+
+---
+
+## [0.3.0] — 2026-04-28
+
+### Added
+
+- **`ToolCallingLlmProvider` interface** — `{ id; chat({ messages, tools, options? }) }` with
+  canonical `ToolDefinition`, `ToolCall`, `ToolResult`, `Message`, `ChatResponse` types.
+  Adapters convert between the neutral wire format and provider-native shapes.
+- **`AnthropicToolCallingProvider`** — `input_schema` tool format, `tool_use` block parsing,
+  `tool_result` second-turn serialization.
+- **`OpenAIToolCallingProvider`** — `type:function` wrapper, `tool_calls` parsing, null-content
+  handling, `role:tool` second-turn serialization.
+- **`GeminiToolCallingProvider`** — camelCase `functionDeclarations`, `functionCall` part
+  parsing, positional call IDs (`gemini-call-N`), `functionResponse` second-turn.
+  `functionResponse.name` is resolved from the preceding assistant turn so Gemini can
+  correlate the response to the declared function (bug fix — emitting the synthetic ID
+  would silently break the second turn).
+- **`AgentLoopProvider`** — implements `LlmProvider` via a full agentic tool-call loop:
+  spawns the `@kaneshir/lisa-mcp` binary via `McpClient`, fetches tools, drives
+  `ToolCallingLlmProvider.chat()` ↔ `McpClient.callTool()` until a text response or
+  `maxIterations` (default 10). Each `complete()` call creates a fresh client from the
+  injected factory so concurrent and sequential calls never share process state. `spawn()`
+  is inside the `try` block so `close()` is always called in `finally` even if the MCP
+  initialize handshake fails. Tool errors are injected as `Error: …` result strings — the
+  loop continues rather than crashing.
+- **`resolveProvider()` updated** — new step 2: `LISA_LLM_PROVIDER` env var instantiates
+  the matching `ToolCallingLlmProvider` and wraps it in `AgentLoopProvider` with a
+  `McpClient` scoped to `iterRoot/.lisa_memory`. Accepts a new optional `{ iterRoot }`
+  third parameter. All existing resolution steps (Claude CLI default, API-key fallbacks)
+  are unchanged when `LISA_LLM_PROVIDER` is unset.
+- `AgentLoopProvider` exported from the package root.
+- All three `ToolCallingLlmProvider` adapters exported from the package root.
+
+### Fixed
+
+- **Gemini second-turn `functionResponse.name`** was emitting the synthetic positional ID
+  (`gemini-call-0`) instead of the original function name (`lisa_health`). Gemini matches
+  responses by function name, so this broke every multi-turn Gemini tool loop silently.
+
+---
+
 ## [0.2.0] — 2026-04-27
 
 ### Breaking changes

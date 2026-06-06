@@ -30,7 +30,6 @@ framework runtime, a cloud provider client), it belongs in the consumer repo.
 ## Running tests
 
 ```bash
-cd packages/test-fabric-core
 npm test
 ```
 
@@ -44,8 +43,6 @@ npm run check:boundary
 ```
 
 Run this before submitting a PR. The CI gate also runs it automatically.
-(The `check:boundary` script is wired in by the `feat/ci-gates-1559` PR.
-Until that lands, run `npx tsx scripts/check-boundary.ts` directly.)
 
 ## Adapter interface stability
 

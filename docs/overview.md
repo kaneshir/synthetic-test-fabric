@@ -59,7 +59,49 @@ adapters you implement:
 | `ScenarioPlanner` | Recommend next scenario based on score |
 
 See [adapter-contract.md](./adapter-contract.md) for interface definitions and
-implementation guidance.
+implementation guidance. Use `fab adapter scaffold <type>` to generate a stub
+that compiles against the interface, and `fab adapter validate <path>` to
+check your edits in milliseconds without spinning up the full loop.
+
+---
+
+## How you operate it
+
+STF ships three peer surfaces — same engine underneath, three ways to drive it:
+
+**1. CLI (`fab`)** — primary interface. Every command accepts `--json` for
+scripts and CI. Outcome envelope is documented in
+[cli-json-output.md](./cli-json-output.md).
+
+```bash
+fab init                              # scaffold a new project
+fab smoke                             # bounded check
+fab orchestrate                       # full loop
+fab status                            # cross-run state
+fab inspect --root <dir>              # structured run-root summary
+fab doctor                            # env + peer-dep health check
+fab adapter scaffold <type>           # generate one stub
+fab adapter validate <path>           # type-check it against the interface
+fab check --root <dir> --threshold N  # CI score gate
+```
+
+**2. MCP server (`fab-mcp`)** — exposes every command as a typed `stf_*` tool
+for Claude Code (or any MCP client). Same envelope contract as the CLI; the
+server subprocess-wraps the CLI so the source of truth stays in one place. See
+[mcp-install.md](./mcp-install.md).
+
+**3. Library** — every operation has a typed JS export from
+`synthetic-test-fabric`:
+
+```ts
+import {
+  scaffoldProject, scaffoldAdapter, validateAdapter,
+  runDoctor, inspectRunRoot, runFabCommand,
+} from 'synthetic-test-fabric';
+```
+
+Useful when you want to embed STF inside your own tooling, IDE plugin, or
+custom dashboard rather than shelling out.
 
 ---
 

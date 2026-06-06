@@ -12,6 +12,7 @@ set them before calling `orchestrator.run()` — they are optional unless noted.
 
 | Variable | Required | Read by | Effect if missing |
 |----------|----------|---------|-------------------|
+| `LISA_LLM_PROVIDER` | No | `resolveProvider()` (GENERATE_FLOWS) | Falls through to Claude CLI / API-key auto-detection |
 | `ANTHROPIC_API_KEY` | No | `resolveProvider()` (GENERATE_FLOWS) | Falls through to next provider in auto-detection order |
 | `OPENAI_API_KEY` | No | `resolveProvider()` (GENERATE_FLOWS) | Falls through to next provider in auto-detection order |
 | `GEMINI_API_KEY` | No | `resolveProvider()` (GENERATE_FLOWS) | Falls through to next provider in auto-detection order |
@@ -21,20 +22,64 @@ set them before calling `orchestrator.run()` — they are optional unless noted.
 
 ### GENERATE_FLOWS provider auto-detection
 
-When no `llmProvider` or `flowModel` is set in `OrchestratorOptions`, the
-framework probes for a provider in this order:
+When no `llmProvider` is set in `OrchestratorOptions`, the framework probes
+for a provider in this order:
 
-1. `claude` CLI in PATH **and** `STF_DISABLE_CLAUDE_CLI` unset → `ClaudeCliProvider`
+1. **`LISA_LLM_PROVIDER` set** → `AgentLoopProvider` wrapping the matching
+   `ToolCallingLlmProvider` adapter (Anthropic, OpenAI, or Gemini). The loop
+   spawns the `@kaneshir/lisa-mcp` binary and drives it via real tool calls.
+   See [`LISA_LLM_PROVIDER`](#lisa_llm_provider) below.
+2. `flowModel` starts with `'ollama:'` → `OllamaProvider`
+3. `flowModel` set to any other string → `GeminiProvider` (legacy)
+4. `claude` CLI in PATH **and** `STF_DISABLE_CLAUDE_CLI` unset → `ClaudeCliProvider`
    (uses your Claude.ai subscription — no API key needed)
-2. `ANTHROPIC_API_KEY` set → `ClaudeSdkProvider`
-3. `OPENAI_API_KEY` set → `OpenAIProvider`
-4. `GEMINI_API_KEY` set → `GeminiProvider`
-5. None → GENERATE_FLOWS skipped (non-fatal; TEST phase runs normally)
+5. `ANTHROPIC_API_KEY` set → `ClaudeSdkProvider`
+6. `OPENAI_API_KEY` set → `OpenAIProvider`
+7. `GEMINI_API_KEY` set → `GeminiProvider`
+8. None → GENERATE_FLOWS skipped (non-fatal; TEST phase runs normally)
+
+### `LISA_LLM_PROVIDER`
+
+Activates the **agentic tool-call loop** for GENERATE_FLOWS. When set, the
+framework instantiates an `AgentLoopProvider` that spawns the
+`@kaneshir/lisa-mcp` binary, fetches its tool list, and drives a multi-turn
+conversation with the selected LLM — routing tool calls back to the binary
+rather than using a simple `complete()` prompt.
+
+**Valid values:**
+
+| Value | SDK used | Peer dep required |
+|-------|----------|-------------------|
+| `anthropic` or `claude` | `@anthropic-ai/sdk` | `npm install @anthropic-ai/sdk` |
+| `openai` | `openai` | `npm install openai` |
+| `gemini` | `@google/generative-ai` | `npm install @google/generative-ai` |
+
+The corresponding API key env var must also be set (`ANTHROPIC_API_KEY`,
+`OPENAI_API_KEY`, or `GEMINI_API_KEY`).
+
+**`@kaneshir/lisa-mcp` is required** when `LISA_LLM_PROVIDER` is set — the
+agentic loop spawns the binary on every `complete()` call:
+
+```bash
+npm install @kaneshir/lisa-mcp
+```
+
+**Quick start:**
+
+```bash
+LISA_LLM_PROVIDER=openai OPENAI_API_KEY=sk-... npx fab orchestrate
+LISA_LLM_PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-... npx fab orchestrate
+LISA_LLM_PROVIDER=gemini GEMINI_API_KEY=... npx fab orchestrate
+```
+
+When unset, the framework falls through to Claude CLI / API-key auto-detection
+(steps 4–8 above). The Claude CLI path is the zero-config default for most
+users.
 
 ### `ANTHROPIC_API_KEY`
 
-Enables `ClaudeSdkProvider` — used when no `llmProvider` is set, the `claude`
-CLI is absent or disabled, and this key is present. Get a key from
+Enables `ClaudeSdkProvider` (step 5 fallback) or `AnthropicToolCallingProvider`
+(when `LISA_LLM_PROVIDER=anthropic`). Get a key from
 [console.anthropic.com](https://console.anthropic.com).
 
 ### `OPENAI_API_KEY`

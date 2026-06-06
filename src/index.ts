@@ -20,8 +20,60 @@ export {
   resolveLoopPaths,
   makeLoopId,
   FABRIC_SEAL_FILE,
+  // Root-kind detection + normalization (added in #18)
+  detectRootKind,
+  resolveLoopRoot,
+  resolveIterRoot,
+  AmbiguousRootError,
+  UnknownRootError,
+  // Structured root inspection (added in #20)
+  inspectRunRoot,
 } from './run-root';
-export type { LoopIterationPaths } from './run-root';
+export type {
+  LoopIterationPaths,
+  RootKind,
+  RunPhase,
+  RunRootSummary,
+  BehaviorEventSummary,
+} from './run-root';
+// Project scaffolder (added in #21) — same library backs the `fab init` CLI.
+export { scaffoldProject, InitConflictError } from './cli/init';
+export type { InitOptions, InitResult } from './cli/init';
+// Per-adapter scaffolder (added in #22) — same library backs `fab adapter scaffold`.
+export {
+  scaffoldAdapter,
+  ScaffoldAdapterError,
+  renderAdapterStub,
+  isAdapterType,
+  ADAPTER_TYPES,
+  ADAPTER_INTERFACES,
+  DEFAULT_ADAPTER_CLASS_NAMES,
+} from './cli/init';
+export type {
+  AdapterType,
+  ScaffoldAdapterOptions,
+  ScaffoldAdapterResult,
+} from './cli/init';
+// Adapter validator (added in #23) — same library backs `fab adapter validate`.
+export { validateAdapter, AdapterValidateError } from './cli/adapter-validate';
+export type {
+  ValidationError,
+  ValidationResult,
+  ValidateAdapterOptions,
+} from './cli/adapter-validate';
+// MCP server — fab-mcp wrapping all fab commands as native MCP tools (added in #27).
+export { runFabCommand, FAB_CLI_PATH, resolveEnvTimeoutMs } from './mcp/runner';
+export type { RunFabResult, RunFabOptions } from './mcp/runner';
+export { createServer as createMcpServer, TOOL_COUNT, TOOL_NAMES } from './mcp/server';
+
+// Doctor — environment + peer-dep health check (added in #24).
+export { runDoctor } from './cli/doctor';
+export type {
+  DoctorCheck,
+  DoctorResult,
+  RunDoctorOptions,
+  CheckStatus,
+} from './cli/doctor';
 export type { FabricScore } from './score';
 export { parsePlaywrightResults, specFilenameToScreenPath } from './playwright-result';
 export type { PlaywrightAgentResult, PlaywrightFailedFlow } from './playwright-result';

@@ -5,6 +5,17 @@ framework drives the loop; adapters do everything app-specific.
 
 All adapter interfaces are exported from `synthetic-test-fabric`.
 
+> **Don't write these from scratch.** Run `fab adapter scaffold <type>` to
+> generate a stub that compiles against the interface, then iterate using
+> `fab adapter validate <path>` to confirm your edits still satisfy the
+> contract. Both commands are documented in [quickstart.md §2](./quickstart.md).
+>
+> ```bash
+> fab adapter scaffold app --out src/adapters/MyAppAdapter.ts
+> # ... edit the generated TODO methods ...
+> fab adapter validate src/adapters/MyAppAdapter.ts
+> ```
+
 ---
 
 ## AppAdapter
