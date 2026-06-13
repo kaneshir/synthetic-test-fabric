@@ -186,4 +186,21 @@ describe('public API surface (src/index.ts)', () => {
       expectExported(name);
     });
   });
+
+  describe('mcp fixture conformance double (#48)', () => {
+    it.each([
+      'startFixture',
+      'DEFAULT_TOOLS',
+      'DEFAULT_TOKENS',
+      'DEFAULT_PROTOCOL_VERSION',
+      'JSON_RPC',
+      'FixtureHandle',
+      'FixtureConfig',
+      'FixtureTool',
+      'FixtureToken',
+      'Aal',
+    ])('exports %s', (name) => {
+      expectExported(name);
+    });
+  });
 });

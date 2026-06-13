@@ -117,6 +117,27 @@ unexplored scenarios; low `regression_health` flags regressions immediately.
 
 ---
 
+## What's new in v0.5.0 — MCP target testing
+
+Point STF at **any product's MCP server** and run closed-loop coverage +
+adversarial verification — the way an agent will actually use it (the inverse of
+`fab-mcp`, where MCP is the *system under test*). MCP is self-describing, so STF
+discovers your surface, auto-derives coverage, and ships a portable protocol probe
+battery. One call:
+
+```ts
+import { assessMcpTarget } from 'synthetic-test-fabric';
+const score = await assessMcpTarget({ endpoint: 'https://app/mcp', dbPath: '.lisa_memory/lisa.db',
+  simulationId: 'ci', agentId: 'probe', token: process.env.MCP_TOKEN });
+if (!score.passed) throw new Error('MCP target failed'); // → FabricScore.details.mcp
+```
+
+Read-only by default (safe against prod), classifies on the JSON-RPC layer (errors
+ride over HTTP 200), targets protocol `2025-03-26`. See
+[docs/mcp-target-testing.md](docs/mcp-target-testing.md) and `demo/mcp-target.ts`.
+
+---
+
 ## What's new in v0.4.0
 
 The CLI surface a Claude Code (or similar) agent can drive end-to-end. Same engine
@@ -151,6 +172,7 @@ Full changelog: [CHANGELOG.md](CHANGELOG.md).
 | **Visual regression** | `VisualRegression.capture/compare` with pixelmatch; baselines managed via `fab baseline` |
 | **HTML trend report** | `HtmlReporter` generates a self-contained report with Chart.js trend across the last 30 iterations |
 | **Headless HTTP** | `ApiExecutor` records behavior events without a browser — 80× faster than Playwright for simulation |
+| **MCP target testing** | `assessMcpTarget` / `runProtocolProbes` / `runMcpCoverage` drive any MCP server as a system-under-test → `FabricScore.details.mcp`. See [docs/mcp-target-testing.md](docs/mcp-target-testing.md) |
 | **LLM element inference** | `@kaneshir/lisa-mcp` peer gives BrowserAdapter AI-driven key discovery via the Lisa MCP server |
 | **LLM-agnostic flow generation** | `LISA_LLM_PROVIDER=anthropic\|openai\|gemini` swaps the GENERATE_FLOWS LLM without code changes |
 

@@ -135,6 +135,13 @@ describe('McpExecutor (#43)', () => {
     expect(events.every((ev) => JSON.parse(ev.entity_refs!).surface === 'mcp')).toBe(true);
   });
 
+  it('records nothing (and never crashes) in assessment-only mode (empty dbPath)', async () => {
+    const e = new McpExecutor({ endpoint: fx.url, dbPath: '', simulationId: 'sim-1', agentId: 'a', token: 'valid-readonly' });
+    const r = await e.callTool('fixture.read.item', { id: 'x' });
+    expect(r.ok).toBe(true);
+    e.flush(); // no-op, no throw
+  });
+
   it('preserves the raw mcp_error_<code> in the event detail', async () => {
     const e = exec('valid-readonly');
     await e.callTool('fixture.read.restricted', {}); // -32003

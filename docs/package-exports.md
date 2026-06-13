@@ -340,6 +340,23 @@ Drop-in `Reporter` implementations included in the package.
 
 ---
 
+## MCP fixture (conformance double, #48)
+
+A compliant Streamable-HTTP MCP server you can point the target tester at in your own tests — no real backend, no secrets.
+
+| Export | Kind | Description |
+|--------|------|-------------|
+| `startFixture` | function | Boot an in-process compliant MCP server: `startFixture(config?) => Promise<FixtureHandle>` (sessions+expiry, JSON+SSE, scope/AAL gating, preview/commit, paginated `tools/list`). |
+| `DEFAULT_TOOLS` | const | Default fixture tool catalog (read / scope-gated / AAL2-write / broken). |
+| `DEFAULT_TOKENS` | const | Default token registry (`valid-readonly` / `valid-aal2` / `wrong-aud` / `expired`). |
+| `DEFAULT_PROTOCOL_VERSION` | const | `'2025-03-26'`. |
+| `JSON_RPC` | const | JSON-RPC error-code constants (`UNAUTHORIZED`, `FORBIDDEN`, …). |
+| `FixtureHandle` | type | `{ url, port, close(), expireAllSessions(), mutationCount() }`. |
+| `FixtureConfig` | type | Server config (tools, tokens, protocol versions, session TTL, page size, endpoint path). |
+| `FixtureTool` / `FixtureToken` / `Aal` | type | Catalog + token shapes. |
+
+---
+
 ## Misc
 
 | Export | Kind | Description |

@@ -1,6 +1,6 @@
 {
   "name": "synthetic-test-fabric",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Generic engine for autonomous synthetic test loops: simulation → browser flows → scoring → feedback",
   "keywords": [
     "testing",
@@ -40,6 +40,7 @@
     "lint": "eslint . --ext .ts",
     "check:boundary": "npx tsx scripts/check-boundary.ts",
     "check:package-surface": "npx tsx scripts/check-package-surface.ts",
+    "check:release": "npx tsx scripts/check-release.ts",
     "check:demo": "npm run build && tsc --project tsconfig.demo.json --noEmit",
     "check:fixtures": "tsc --project tsconfig.fixtures.json --noEmit",
     "demo": "npx tsx demo/run.ts",
@@ -99,6 +100,7 @@
     "docs/lisa-mcp.md",
     "docs/cli-json-output.md",
     "docs/mcp-install.md",
+    "docs/mcp-target-testing.md",
     "docs/claude-skills/README.md",
     "docs/claude-skills/skills/stf/",
     "docs/claude-skills/agents/stf-runner.md",

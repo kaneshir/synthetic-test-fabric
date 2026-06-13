@@ -21,6 +21,10 @@ export { runProtocolProbes, classifyVerdict } from './mcp-target/probes';
 export type { ProbeVerdict, ProbeOutcome, ProbeResult, ProbeBatteryResult, ProbeOptions } from './mcp-target/probes';
 export { assessMcpTarget, mcpScoreToDetails } from './mcp-target/score';
 export type { McpTargetScore, AssessMcpTargetOptions } from './mcp-target/score';
+// MCP fixture — a compliant Streamable-HTTP MCP server you can point the target
+// tester at (in your own tests / conformance checks), so you don't need a real backend.
+export { startFixture, DEFAULT_TOOLS, DEFAULT_TOKENS, DEFAULT_PROTOCOL_VERSION, JSON_RPC } from './mcp-target/fixture-server';
+export type { FixtureHandle, FixtureConfig, FixtureTool, FixtureToken, Aal } from './mcp-target/fixture-server';
 export {
   LISA_DB_SCHEMA_VERSION,
   applyLisaDbMigrations,
