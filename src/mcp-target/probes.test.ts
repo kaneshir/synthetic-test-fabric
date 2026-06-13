@@ -39,6 +39,33 @@ describe('runProtocolProbes — compliant fixture', () => {
     expect(byName['unauthenticated']).toBe('secure');
     expect(byName['schema-violating-args']).toBe('secure');
     expect(byName['unsupported-protocol-version']).toBe('secure');
+    expect(res.schemaProbeSkipped).toBe(false);
+  });
+
+  it('resolves a rotating token provider exactly once (no false session mismatch)', async () => {
+    let calls = 0;
+    const tokenProvider = () => {
+      calls += 1;
+      return calls === 1 ? 'valid-aal2' : 'valid-readonly'; // a 2nd resolution would desync session vs probes
+    };
+    const res = await runProtocolProbes({ endpoint: fx.url, dbPath: '', simulationId: 's', agentId: 'a', tokenProvider });
+    expect(calls).toBe(1);
+    expect(res.passed).toBe(true);
+  });
+
+  it('emits inconclusive (not a silent skip) when no advertised tool has a fuzzable schema', async () => {
+    const f = await startFixture({
+      tools: [{ name: 'noargs.read', description: 'no-arg read', inputSchema: { type: 'object', properties: {} }, requiredScopes: ['read'], readOnlyHint: true }],
+      tokens: { t: { scopes: ['read'], aal: 'normal', audience: 'mcp' } },
+    });
+    try {
+      const res = await runProtocolProbes({ endpoint: f.url, dbPath: '', simulationId: 's', agentId: 'a', token: 't' });
+      expect(res.schemaProbeSkipped).toBe(true);
+      expect(res.results.find((r) => r.name === 'schema-violating-args')?.verdict).toBe('inconclusive');
+      expect(res.passed).toBe(false); // can't prove schema enforcement → gate not satisfied
+    } finally {
+      await f.close();
+    }
   });
 });
 

@@ -44,6 +44,8 @@ export interface ProbeBatteryResult {
   secure: number;
   violations: number;
   inconclusive: number;
+  /** True if no advertised tool had a fuzzable schema, so schema enforcement couldn't be probed. */
+  schemaProbeSkipped: boolean;
   /** Hard gate: a violation OR an inconclusive fails the battery. */
   passed: boolean;
 }
@@ -183,26 +185,33 @@ export interface ProbeOptions {
  */
 export async function runProtocolProbes(config: McpTargetConfig, opts: ProbeOptions = {}): Promise<ProbeBatteryResult> {
   const log = opts.log ?? (() => undefined);
+  // Resolve the token ONCE and pass it explicitly, so a rotating/fresh provider
+  // can't initialize the session under a different token than the raw probes use
+  // (which would cause a false session/principal mismatch).
   const token = config.tokenProvider ? await config.tokenProvider() : config.token ?? '';
 
-  const exec = new McpExecutor(config);
+  const exec = new McpExecutor({ ...config, token, tokenProvider: undefined });
   await exec.initialize();
 
+  // Find the first non-destructive tool that has a fuzzable (boundary-invalid)
+  // schema. Scan ALL read tools, not just the first — a no-arg first tool must
+  // not disable the schema probe if a later tool is fuzzable.
   let readToolName: string | undefined;
   let invalidArgs: unknown;
   try {
     const tools = await exec.listTools();
-    const readTool = tools.find((t) => t.annotations?.destructiveHint !== true);
-    if (readTool) {
-      const gen = generateInputs(readTool.inputSchema);
+    for (const t of tools.filter((tool) => tool.annotations?.destructiveHint !== true)) {
+      const gen = generateInputs(t.inputSchema);
       if (gen.invalid.length) {
-        readToolName = readTool.name;
+        readToolName = t.name;
         invalidArgs = gen.invalid[0].input;
+        break;
       }
     }
   } catch {
     /* discovery failure just disables the schema-violation probe */
   }
+  const schemaProbeSkipped = readToolName === undefined;
 
   const ctx: ProbeContext = {
     endpoint: config.endpoint,
@@ -217,7 +226,16 @@ export async function runProtocolProbes(config: McpTargetConfig, opts: ProbeOpti
   const results: ProbeResult[] = [];
   for (const spec of PROBE_SPECS) {
     if (spec.requiresReadTool && (!ctx.readToolName || ctx.invalidArgs === undefined)) {
-      log(`skipped probe '${spec.name}': no read tool with a schema-invalid input available`);
+      // Don't silently drop — record inconclusive so the hard gate reflects that
+      // schema enforcement could not be verified (and #47 can read schemaProbeSkipped).
+      log(`probe '${spec.name}' → inconclusive (no advertised tool has a fuzzable schema)`);
+      results.push({
+        name: spec.name,
+        description: spec.description,
+        verdict: 'inconclusive',
+        expectedSecure: spec.expectedSecure,
+        outcome: { rejected: true, httpStatus: 0, detail: 'no advertised tool has a fuzzable schema' },
+      });
       continue;
     }
     const { headers: h, body } = spec.build(ctx);
@@ -230,7 +248,7 @@ export async function runProtocolProbes(config: McpTargetConfig, opts: ProbeOpti
   const secure = results.filter((r) => r.verdict === 'secure').length;
   const violations = results.filter((r) => r.verdict === 'violation').length;
   const inconclusive = results.filter((r) => r.verdict === 'inconclusive').length;
-  return { results, secure, violations, inconclusive, passed: violations === 0 && inconclusive === 0 };
+  return { results, secure, violations, inconclusive, schemaProbeSkipped, passed: violations === 0 && inconclusive === 0 };
 }
 
 // ---------------------------------------------------------------------------
