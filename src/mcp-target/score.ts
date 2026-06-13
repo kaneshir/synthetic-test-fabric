@@ -55,7 +55,10 @@ export async function assessMcpTarget(config: McpTargetConfig, opts: AssessMcpTa
   const log = opts.log ?? (() => undefined);
   const threshold = opts.coverageThreshold ?? 0;
 
-  const exec = new McpExecutor(config);
+  // includeWrites is the user-facing write opt-in for the assessment — make it
+  // self-sufficient by enabling the executor's write guard, so coverage doesn't
+  // throw McpWriteBlockedError at the first destructive tool.
+  const exec = new McpExecutor({ ...config, allowWrites: opts.includeWrites ? true : config.allowWrites });
   const coverage = await runMcpCoverage(exec, { includeWrites: opts.includeWrites, log });
   const probes = await runProtocolProbes(config, { log });
 

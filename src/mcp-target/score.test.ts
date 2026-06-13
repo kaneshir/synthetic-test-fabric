@@ -37,6 +37,15 @@ describe('assessMcpTarget (#47)', () => {
     expect(score.passed).toBe(false);
   });
 
+  it('includeWrites enables write coverage without throwing (forces executor allowWrites)', async () => {
+    // Caller sets only includeWrites — no config.allowWrites. Must return a score,
+    // not throw McpWriteBlockedError at the first destructive tool.
+    const score = await assessMcpTarget(cfg(), { includeWrites: true });
+    expect(score.coverage.skippedByPolicy).toBe(0); // writes no longer skipped by policy
+    expect(score.coverage.toolsTotal).toBe(4);
+    expect(score.adversarial.passed).toBe(true);
+  });
+
   it('mcpScoreToDetails wraps the score under the mcp key for FabricScore.details', async () => {
     const score = await assessMcpTarget(cfg());
     const details = mcpScoreToDetails(score);
