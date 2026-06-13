@@ -120,6 +120,9 @@ jobs:
       - name: Scan published package surface
         run: npm run check:package-surface
 
+      - name: Check release hygiene (no tracked node_modules, lockfile version)
+        run: npm run check:release
+
       - name: Verify npm package contents
         run: npm pack --dry-run
 

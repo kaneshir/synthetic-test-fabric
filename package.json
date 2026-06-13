@@ -40,6 +40,7 @@
     "lint": "eslint . --ext .ts",
     "check:boundary": "npx tsx scripts/check-boundary.ts",
     "check:package-surface": "npx tsx scripts/check-package-surface.ts",
+    "check:release": "npx tsx scripts/check-release.ts",
     "check:demo": "npm run build && tsc --project tsconfig.demo.json --noEmit",
     "check:fixtures": "tsc --project tsconfig.fixtures.json --noEmit",
     "demo": "npx tsx demo/run.ts",
