@@ -11,6 +11,39 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.5.0] — 2026-06-13 — MCP target testing
+
+Point STF at **any product's MCP server** and run closed-loop coverage +
+adversarial verification — the inverse of `fab-mcp`. MCP is the system under
+test, not the harness. Targets protocol version `2025-03-26` (negotiated).
+
+### Added — MCP target testing
+- `McpExecutor` — Streamable-HTTP MCP target client. Initialize/session lifecycle,
+  protocol-version negotiation, both JSON and SSE response forms, stale-session
+  (404) reinitialize-and-retry, paginated `tools/list`, `previewThenCommit`.
+  Records a BehaviorEvent per `tools/call`. Read-only by default (`allowWrites`).
+- `classifyMcpOutcome` — maps JSON-RPC `error.code` / `result.isError` onto the
+  existing `BEHAVIOR_OUTCOMES` (errors ride over HTTP 200 — classified on the
+  JSON-RPC layer, not HTTP status). No schema migration.
+- `runMcpCoverage` + `generateInputs` + `snapshotCatalog`/`diffCatalog` — discovery
+  with schema-driven coverage, boundary-invalid input generation, unsupported-construct
+  reporting, and annotation-aware catalog drift detection.
+- `runProtocolProbes` — generic, protocol-portable adversarial battery (unauthenticated,
+  malformed JSON-RPC, unknown tool, schema-violating args, stale/missing session,
+  unsupported version). Per-probe expected-secure on the JSON-RPC layer; hard gate
+  on violation **or** inconclusive.
+- `assessMcpTarget` + `mcpScoreToDetails` — combined assessment shaped for
+  `FabricScore.details.mcp`, carrying the exercised protocol version.
+- `startFixture` — a compliant Streamable-HTTP MCP fixture server, exported as a
+  conformance double for your own tests. See `docs/mcp-target-testing.md` and
+  `demo/mcp-target.ts`.
+
+### Changed — CI
+- Raised the release-readiness tarball-install test timeout (native-dep reinstall
+  routinely ~90–100s on CI runners).
+
+---
+
 ## [0.4.0] — 2026-05-10 — agent-friendly surface
 
 The CLI surface a Claude Code (or similar) agent can drive end-to-end.

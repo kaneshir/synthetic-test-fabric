@@ -301,8 +301,9 @@ export class McpExecutor {
     return { preview, commit };
   }
 
-  /** Flush buffered behavior events to disk. */
+  /** Flush buffered behavior events to disk. No-op in assessment-only mode (empty dbPath). */
   flush(): void {
+    if (!this.cfg.dbPath) return;
     try {
       BehaviorEventRecorder.getInstance(this.cfg.dbPath, 'simulation').flush();
     } catch {
@@ -360,6 +361,9 @@ export class McpExecutor {
     outcome_detail: string | null,
     toolName: string,
   ): void {
+    // No dbPath → assessment-only mode: don't record (and don't arm the
+    // recorder's flush timer against a schemaless/absent db).
+    if (!this.cfg.dbPath) return;
     try {
       BehaviorEventRecorder.getInstance(this.cfg.dbPath, 'simulation').record({
         execution_id: randomUUID(), // fresh per call → each call lands as its own event
