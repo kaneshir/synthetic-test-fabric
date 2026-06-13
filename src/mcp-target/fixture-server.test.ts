@@ -244,4 +244,33 @@ describe('MCP fixture server (#45)', () => {
     const r = await rpc(fx.url, { method: 'no/such/method', token: 'valid-readonly', sessionId: s.sessionId });
     expect(r.body.error?.code).toBe(JSON_RPC.METHOD_NOT_FOUND);
   });
+
+  // ── session is bound to its initializing bearer ──────────────────────────
+  it('a different bearer presenting an existing session id is rejected (no privilege bleed)', async () => {
+    // initialize an AAL2 session, then try to reuse its id with a read-only token
+    const s = await init(fx.url, 'valid-aal2');
+    const hijack = await rpc(fx.url, { method: 'tools/list', token: 'valid-readonly', sessionId: s.sessionId });
+    expect(hijack.body.error?.code).toBe(JSON_RPC.UNAUTHORIZED);
+    expect(hijack.body.error?.data?.reason).toBe('mcp_session_principal_mismatch');
+
+    // and it must not have leaked write access either
+    const write = await rpc(fx.url, { method: 'tools/call', token: 'valid-readonly', sessionId: s.sessionId, params: { name: 'fixture.write.create', arguments: { mode: 'preview', name: 'x' } } });
+    expect(write.body.result).toBeUndefined();
+    expect(write.body.error?.code).toBe(JSON_RPC.UNAUTHORIZED);
+  });
+
+  // ── transport shape enforcement ──────────────────────────────────────────
+  it('rejects a non-POST method with HTTP 405', async () => {
+    const res = await fetch(fx.url, { method: 'GET', headers: { Authorization: 'Bearer valid-readonly' } });
+    expect(res.status).toBe(405);
+  });
+
+  it('rejects a wrong endpoint path with HTTP 404', async () => {
+    const res = await fetch(`http://127.0.0.1:${fx.port}/wrong`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer valid-readonly' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }),
+    });
+    expect(res.status).toBe(404);
+  });
 });

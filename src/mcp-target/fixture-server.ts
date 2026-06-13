@@ -4,7 +4,7 @@
  * discovery (#44), and protocol probe battery (#46) never touch a real backend.
  *
  * It deliberately emulates the *hard parts* of a production MCP contract
- * (verified against Redy `backend-api/src/mcp/`), so a trivial echo server is
+ * (verified against a real production MCP server), so a trivial echo server is
  * insufficient. It covers:
  *   - `initialize` → `Mcp-Session-Id` lifecycle + idle expiry (stale → HTTP 404)
  *   - both response forms: plain JSON and request-scoped SSE
@@ -13,7 +13,7 @@
  *   - two-phase write contract (preview → confirmation token → commit) with
  *     idempotency semantics
  *   - protocol-version negotiation (unsupported → error)
- *   - JSON-RPC error codes carried **over HTTP 200** (the Redy envelope: 401→
+ *   - JSON-RPC error codes carried **over HTTP 200** (a production envelope: 401→
  *     -32001, 403→-32003, 404→-32004, 429→-32029, 400→-32602)
  *
  * No network egress, no secrets, no external deps beyond node stdlib + crypto.
@@ -24,7 +24,7 @@ import * as crypto from 'crypto';
 import { AddressInfo } from 'net';
 
 // ---------------------------------------------------------------------------
-// JSON-RPC error codes (mirrors Redy `mcp.service.ts` jsonRpcCodeForStatus)
+// JSON-RPC error codes (mirrors a production server's HTTP-status → JSON-RPC mapping)
 // ---------------------------------------------------------------------------
 
 export const JSON_RPC = {
@@ -82,6 +82,8 @@ export interface FixtureConfig {
   pageSize?: number;
   /** Token registry. Default: valid-readonly / valid-aal2 / wrong-aud / expired. */
   tokens?: Record<string, FixtureToken>;
+  /** Endpoint path the server answers on. Default '/mcp'. Other paths → 404. */
+  endpointPath?: string;
 }
 
 export interface FixtureHandle {
@@ -153,6 +155,8 @@ export const DEFAULT_TOKENS: Record<string, FixtureToken> = {
 
 interface Session {
   id: string;
+  /** Bearer string this session was initialized with — subsequent calls must present the same one. */
+  bearer: string;
   token: FixtureToken;
   protocolVersion: string;
   lastSeen: number;
@@ -226,6 +230,7 @@ export function startFixture(config: FixtureConfig = {}): Promise<FixtureHandle>
   const sessionIdleMs = config.sessionIdleMs ?? 60_000;
   const pageSize = config.pageSize ?? 100;
   const tokens = config.tokens ?? DEFAULT_TOKENS;
+  const endpointPath = config.endpointPath ?? '/mcp';
 
   const sessions = new Map<string, Session>();
   const idempotency = new Map<string, { hash: string; result: unknown }>();
@@ -251,6 +256,16 @@ export function startFixture(config: FixtureConfig = {}): Promise<FixtureHandle>
     });
 
     function handle(): void {
+      // Enforce transport shape so a target client that drops the path or uses
+      // the wrong method fails loudly instead of silently passing.
+      if (req.method !== 'POST') {
+        return sendJson(res, 405, errorEnvelope(null, JSON_RPC.INVALID_REQUEST, `method not allowed: ${req.method}`));
+      }
+      const reqPath = (req.url ?? '').split('?')[0];
+      if (reqPath !== endpointPath) {
+        return sendJson(res, 404, errorEnvelope(null, JSON_RPC.NOT_FOUND, `unknown endpoint: ${reqPath}`));
+      }
+
       let body: JsonRpcRequest = {};
       const raw = Buffer.concat(chunks).toString();
       if (raw) {
@@ -293,7 +308,8 @@ export function startFixture(config: FixtureConfig = {}): Promise<FixtureHandle>
           }));
         }
         const sessionId = crypto.randomUUID();
-        sessions.set(sessionId, { id: sessionId, token, protocolVersion: requested, lastSeen: Date.now() });
+        // bearer is non-null here (token resolution above already returned otherwise).
+        sessions.set(sessionId, { id: sessionId, bearer: bearer as string, token, protocolVersion: requested, lastSeen: Date.now() });
         res.setHeader('Mcp-Session-Id', sessionId);
         res.setHeader('MCP-Protocol-Version', requested);
         return respond(res, wantsSse, 200, resultEnvelope(id, {
@@ -314,6 +330,11 @@ export function startFixture(config: FixtureConfig = {}): Promise<FixtureHandle>
       if (Date.now() - session.lastSeen > sessionIdleMs) {
         sessions.delete(session.id);
         return sendJson(res, 404, errorEnvelope(id, JSON_RPC.UNAUTHORIZED, 'session idle-expired', { reason: 'mcp_session_expired' }));
+      }
+      // Session is bound to the bearer it was initialized with — a different
+      // token presenting this session id is a binding violation, not a valid call.
+      if (session.bearer !== bearer) {
+        return respond(res, wantsSse, 200, errorEnvelope(id, JSON_RPC.UNAUTHORIZED, 'session/token binding mismatch', { reason: 'mcp_session_principal_mismatch' }));
       }
       session.lastSeen = Date.now();
 
@@ -421,7 +442,7 @@ export function startFixture(config: FixtureConfig = {}): Promise<FixtureHandle>
     server.listen(0, '127.0.0.1', () => {
       const port = (server.address() as AddressInfo).port;
       resolve({
-        url: `http://127.0.0.1:${port}/mcp`,
+        url: `http://127.0.0.1:${port}${endpointPath}`,
         port,
         close: () =>
           new Promise<void>((r) => {
