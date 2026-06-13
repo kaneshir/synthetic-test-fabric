@@ -175,4 +175,15 @@ describe('public API surface (src/index.ts)', () => {
       expectExported(name);
     });
   });
+
+  describe('mcp target scoring (#47)', () => {
+    it.each([
+      'assessMcpTarget',
+      'mcpScoreToDetails',
+      'McpTargetScore',
+      'AssessMcpTargetOptions',
+    ])('exports %s', (name) => {
+      expectExported(name);
+    });
+  });
 });

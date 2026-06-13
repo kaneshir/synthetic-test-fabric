@@ -329,6 +329,17 @@ Drop-in `Reporter` implementations included in the package.
 
 ---
 
+## MCP target scoring (#47)
+
+| Export | Kind | Description |
+|--------|------|-------------|
+| `assessMcpTarget` | function | End-to-end MCP target assessment: discovery coverage + protocol probe battery, returned as a `details.mcp`-shaped score (carries the exercised protocol version). Optional `coverageThreshold` and `surface` profile. |
+| `mcpScoreToDetails` | function | Wrap an `McpTargetScore` under the `mcp` key for merging into `FabricScore.details`. |
+| `McpTargetScore` | type | `{ surface?, protocolVersion?, coverage{…}, adversarial{…}, passed }`. |
+| `AssessMcpTargetOptions` | type | `{ surface?, includeWrites?, coverageThreshold?, log? }`. |
+
+---
+
 ## Misc
 
 | Export | Kind | Description |

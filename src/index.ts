@@ -19,6 +19,8 @@ export { generateInputs } from './mcp-target/schema-gen';
 export type { SchemaGenResult, JsonSchema } from './mcp-target/schema-gen';
 export { runProtocolProbes, classifyVerdict } from './mcp-target/probes';
 export type { ProbeVerdict, ProbeOutcome, ProbeResult, ProbeBatteryResult, ProbeOptions } from './mcp-target/probes';
+export { assessMcpTarget, mcpScoreToDetails } from './mcp-target/score';
+export type { McpTargetScore, AssessMcpTargetOptions } from './mcp-target/score';
 export {
   LISA_DB_SCHEMA_VERSION,
   applyLisaDbMigrations,
