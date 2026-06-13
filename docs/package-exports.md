@@ -313,6 +313,22 @@ Drop-in `Reporter` implementations included in the package.
 
 ---
 
+## MCP protocol probes (#46)
+
+| Export | Kind | Description |
+|--------|------|-------------|
+| `runProtocolProbes` | function | Run the generic, protocol-portable adversarial probe battery against any MCP target (unauthenticated, malformed JSON-RPC, parse error, unknown tool, schema-violating args, stale/missing session, unsupported protocol version). Classifies on the JSON-RPC layer; each probe declares its own expected-secure signal. Hard gate: any violation **or** inconclusive fails. |
+| `classifyVerdict` | function | Map `(isSecure, rejected)` → `secure` / `violation` / `inconclusive`. |
+| `ProbeBatteryResult` | type | Aggregate result (`results`, `secure`, `violations`, `inconclusive`, `passed`). |
+| `ProbeResult` | type | Per-probe result (`name`, `verdict`, `expectedSecure`, `outcome`). |
+| `ProbeOutcome` | type | Raw probe outcome (`rejected`, `errorCode`, `httpStatus`, `detail`). |
+| `ProbeVerdict` | type | `'secure' \| 'violation' \| 'inconclusive'`. |
+| `ProbeOptions` | type | Options (`log`). |
+
+> Product-specific authz probes (OAuth audience, AAL escalation, cross-org, confirmation-token forgery, idempotency abuse) are **out of scope here by design** — they live in the adopter layer.
+
+---
+
 ## Misc
 
 | Export | Kind | Description |
