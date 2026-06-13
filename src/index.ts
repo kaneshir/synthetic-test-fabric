@@ -13,6 +13,10 @@ export type {
   CallToolOptions,
   JsonRpcEnvelope,
 } from './mcp-target/executor';
+export { snapshotCatalog, diffCatalog, runMcpCoverage } from './mcp-target/discovery';
+export type { CatalogSnapshot, CatalogDiff, McpCoverageResult, CoverageOptions } from './mcp-target/discovery';
+export { generateInputs } from './mcp-target/schema-gen';
+export type { SchemaGenResult, JsonSchema } from './mcp-target/schema-gen';
 export {
   LISA_DB_SCHEMA_VERSION,
   applyLisaDbMigrations,

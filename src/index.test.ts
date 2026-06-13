@@ -144,4 +144,21 @@ describe('public API surface (src/index.ts)', () => {
       expectExported(name);
     });
   });
+
+  describe('mcp discovery + coverage (#44)', () => {
+    it.each([
+      'snapshotCatalog',
+      'diffCatalog',
+      'runMcpCoverage',
+      'generateInputs',
+      'CatalogSnapshot',
+      'CatalogDiff',
+      'McpCoverageResult',
+      'CoverageOptions',
+      'SchemaGenResult',
+      'JsonSchema',
+    ])('exports %s', (name) => {
+      expectExported(name);
+    });
+  });
 });

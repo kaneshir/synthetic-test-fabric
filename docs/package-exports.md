@@ -296,6 +296,23 @@ Drop-in `Reporter` implementations included in the package.
 
 ---
 
+## MCP discovery + coverage (#44)
+
+| Export | Kind | Description |
+|--------|------|-------------|
+| `runMcpCoverage` | function | Discover a target's advertised tools and measure coverage by invoking each with a schema-generated valid input. Read-only by default; reports covered / uncovered / policy-skipped / unsupported-schema and a coverage ratio. |
+| `snapshotCatalog` | function | Pin the advertised tool set (names + input-schema hashes + optional catalog version). |
+| `diffCatalog` | function | Diff a pinned catalog against the current one — flags added / removed / changed / version drift. |
+| `generateInputs` | function | JSON-Schema input generator: a valid instance + boundary-invalid instances + a list of unsupported constructs. |
+| `McpCoverageResult` | type | Result of `runMcpCoverage`. |
+| `CoverageOptions` | type | Options for `runMcpCoverage` (`includeWrites`, `probeInvalid`, `log`). |
+| `CatalogSnapshot` | type | Pinned catalog shape from `snapshotCatalog`. |
+| `CatalogDiff` | type | Drift result from `diffCatalog`. |
+| `SchemaGenResult` | type | Result of `generateInputs` (`valid`, `invalid`, `unsupported`). |
+| `JsonSchema` | type | Loose JSON-Schema object shape consumed by `generateInputs`. |
+
+---
+
 ## Misc
 
 | Export | Kind | Description |
