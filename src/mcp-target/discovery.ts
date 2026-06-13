@@ -49,7 +49,17 @@ export function snapshotCatalog(tools: McpToolMeta[], catalogVersion?: string): 
   return {
     catalogVersion,
     tools: tools
-      .map((t) => ({ name: t.name, schemaHash: schemaHash(t.inputSchema) }))
+      // Fingerprint = input schema + coverage-relevant annotations, so a
+      // destructiveHint/readOnlyHint flip (which changes the coverage policy and
+      // denominator) is flagged as drift, not silently absorbed.
+      .map((t) => ({
+        name: t.name,
+        schemaHash: schemaHash({
+          inputSchema: t.inputSchema ?? {},
+          destructiveHint: t.annotations?.destructiveHint ?? false,
+          readOnlyHint: t.annotations?.readOnlyHint ?? false,
+        }),
+      }))
       .sort((a, b) => a.name.localeCompare(b.name)),
   };
 }

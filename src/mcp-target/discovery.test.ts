@@ -39,6 +39,14 @@ describe('catalog pinning (#44)', () => {
     const t = [{ name: 'a', inputSchema: { type: 'object' } }];
     expect(diffCatalog(snapshotCatalog(t, 'v1'), snapshotCatalog(t, 'v1')).drifted).toBe(false);
   });
+
+  it('flags an annotation change that alters coverage policy (destructiveHint)', () => {
+    const pinned = snapshotCatalog([{ name: 'a', inputSchema: { type: 'object' }, annotations: { destructiveHint: false } }]);
+    const current = snapshotCatalog([{ name: 'a', inputSchema: { type: 'object' }, annotations: { destructiveHint: true } }]);
+    const d = diffCatalog(pinned, current);
+    expect(d.changed).toEqual(['a']);
+    expect(d.drifted).toBe(true);
+  });
 });
 
 describe('runMcpCoverage (#44)', () => {

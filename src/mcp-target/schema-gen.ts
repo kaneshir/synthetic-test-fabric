@@ -73,17 +73,45 @@ function note(schema: JsonSchema, ctx: GenContext): void {
   }
 }
 
+/**
+ * Flatten `allOf` by merging member object schemas (properties + required) into
+ * the base — allOf means ALL members must hold, so the input must satisfy every
+ * one. Non-object members can't be merged and are reported as unsupported.
+ */
+function flattenAllOf(schema: JsonSchema, ctx: GenContext): JsonSchema {
+  if (!Array.isArray(schema.allOf) || !schema.allOf.length) return schema;
+  const merged: JsonSchema = { ...schema };
+  delete merged.allOf;
+  merged.type = merged.type ?? 'object';
+  const props: Record<string, JsonSchema> = { ...(merged.properties ?? {}) };
+  const required: string[] = Array.isArray(merged.required) ? [...merged.required] : [];
+  for (const memberIn of schema.allOf) {
+    const member = memberIn.$ref ? resolveRef(memberIn, ctx) : memberIn;
+    const sub = flattenAllOf(member, ctx); // support nested allOf
+    if (sub.type && sub.type !== 'object') {
+      ctx.unsupported.add('allOf:non-object-member');
+      continue;
+    }
+    Object.assign(props, sub.properties ?? {});
+    if (Array.isArray(sub.required)) required.push(...sub.required);
+  }
+  merged.properties = props;
+  merged.required = Array.from(new Set(required));
+  return merged;
+}
+
 function genValid(schemaIn: JsonSchema, ctx: GenContext): unknown {
-  const schema = schemaIn.$ref ? resolveRef(schemaIn, ctx) : schemaIn;
+  const resolved = schemaIn.$ref ? resolveRef(schemaIn, ctx) : schemaIn;
+  const schema = flattenAllOf(resolved, ctx);
   note(schema, ctx);
 
   if ('default' in schema) return schema.default;
   if ('const' in schema) return schema.const;
   if (Array.isArray(schema.enum) && schema.enum.length) return schema.enum[0];
 
-  for (const key of ['allOf', 'anyOf', 'oneOf'] as const) {
+  for (const key of ['anyOf', 'oneOf'] as const) {
     if (Array.isArray(schema[key]) && schema[key].length) {
-      // Pick the first branch (allOf: first member — shallow, sufficient for inputs).
+      // anyOf/oneOf: any single branch satisfies — pick the first.
       return genValid(schema[key][0], ctx);
     }
   }
@@ -121,11 +149,18 @@ function genValid(schemaIn: JsonSchema, ctx: GenContext): unknown {
 }
 
 function genInvalid(schemaIn: JsonSchema, ctx: GenContext): Array<{ input: unknown; reason: string }> {
-  const schema = schemaIn.$ref ? resolveRef(schemaIn, ctx) : schemaIn;
+  const resolved = schemaIn.$ref ? resolveRef(schemaIn, ctx) : schemaIn;
+  const schema = flattenAllOf(resolved, ctx);
   const out: Array<{ input: unknown; reason: string }> = [];
   const valid = genValid(schema, ctx);
 
   const type = Array.isArray(schema.type) ? schema.type[0] : schema.type;
+
+  // 0) const violation
+  if ('const' in schema) {
+    const v = schema.const;
+    out.push({ input: typeof v === 'number' ? v + 1 : '__not_const__', reason: 'value !== const' });
+  }
 
   // 1) drop a required field
   const required: string[] = Array.isArray(schema.required) ? schema.required : [];
