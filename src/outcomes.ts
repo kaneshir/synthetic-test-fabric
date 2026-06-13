@@ -61,3 +61,38 @@ export function classifyOutcome(error: unknown): BehaviorOutcome {
 
   return BEHAVIOR_OUTCOMES.ERROR_UNKNOWN;
 }
+
+/**
+ * Classify an MCP JSON-RPC response envelope into a BehaviorOutcome.
+ *
+ * MCP carries tool rejections as a JSON-RPC `error` object (or a `result` with
+ * `isError: true`) — frequently **over HTTP 200**. Classifying on HTTP status
+ * would mis-bucket these, so target-testing must classify on the JSON-RPC layer.
+ * Codes mirror a production server's HTTP-status → JSON-RPC mapping
+ * (401→-32001, 403→-32003, 404→-32004, 429→-32029, 400→-32602).
+ *
+ * Maps onto the existing BEHAVIOR_OUTCOMES set — no schema migration required.
+ */
+export function classifyMcpOutcome(envelope: {
+  error?: { code?: number } | null;
+  result?: { isError?: boolean } | null;
+}): BehaviorOutcome {
+  const code = envelope.error?.code;
+  if (typeof code === 'number') {
+    switch (code) {
+      case -32001: return BEHAVIOR_OUTCOMES.ERROR_401; // unauthorized / audience / session-expired
+      case -32003: return BEHAVIOR_OUTCOMES.ERROR_403; // forbidden / scope / AAL step-up
+      case -32004: return BEHAVIOR_OUTCOMES.ERROR_404; // not found / unknown tool
+      case -32601: return BEHAVIOR_OUTCOMES.ERROR_404; // method not found
+      case -32029: return BEHAVIOR_OUTCOMES.ERROR_429; // rate limited
+      case -32602: return BEHAVIOR_OUTCOMES.ERROR_400; // invalid params (maps from HTTP 400)
+      case -32600: return BEHAVIOR_OUTCOMES.ERROR_400; // invalid request
+      case -32700: return BEHAVIOR_OUTCOMES.ERROR_400; // parse error
+      case -32000: return BEHAVIOR_OUTCOMES.ERROR_500; // server/internal error
+      default: return BEHAVIOR_OUTCOMES.ERROR_UNKNOWN;
+    }
+  }
+  // A `result` flagged isError is a tool-level failure with no protocol code.
+  if (envelope.result?.isError) return BEHAVIOR_OUTCOMES.ERROR_UNKNOWN;
+  return BEHAVIOR_OUTCOMES.SUCCESS;
+}
