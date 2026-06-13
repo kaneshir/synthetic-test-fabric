@@ -77,7 +77,13 @@ export interface McpToolResult<T = any> {
 }
 
 export interface CallToolOptions {
-  /** Force write classification (otherwise inferred from discovered annotations). */
+  /**
+   * Force write classification, bypassing the discovered-annotation inference:
+   * `true` = treat as write (gated by allowWrites), `false` = assert read-only.
+   * When omitted, write status is inferred from the tool's `destructiveHint`
+   * (auto-discovering the catalog if needed); unknown/hidden tools are left to
+   * server-side authz rather than client-blocked.
+   */
   write?: boolean;
   /** Override the behavior-event entity id. Defaults to agentId. */
   entityId?: string;
@@ -137,43 +143,91 @@ export class McpExecutor {
 
   // ── lifecycle ────────────────────────────────────────────────────────────
 
-  /** Run the initialize handshake: negotiate version, capture session id + capabilities. */
+  /**
+   * Run the initialize handshake. Negotiates by trying each configured protocol
+   * version in order (preferred first) until the server accepts one, so a
+   * single unsupported preferred version doesn't fail a target that supports a
+   * later configured one.
+   */
   async initialize(): Promise<void> {
     if (!this.bearer) {
       this.bearer = this.cfg.tokenProvider ? await this.cfg.tokenProvider() : this.cfg.token;
     }
-    const preferred = this.preferredVersions[0];
-    const { envelope, sessionIdHeader, httpStatus } = await this.send('initialize', {
-      protocolVersion: preferred,
-      capabilities: {},
-      clientInfo: { name: 'stf-mcp-executor', version: '1.0.0' },
-    });
-    if (envelope.error) {
-      throw new McpError(`initialize failed: ${envelope.error.message}`, envelope.error.code);
+    let lastError: { code?: number; message: string } | undefined;
+    for (const version of this.preferredVersions) {
+      const { envelope, sessionIdHeader, httpStatus } = await this.send('initialize', {
+        protocolVersion: version,
+        capabilities: {},
+        clientInfo: { name: 'stf-mcp-executor', version: '1.0.0' },
+      });
+      if (!envelope.error && httpStatus === 200) {
+        this.sessionId = sessionIdHeader ?? this.sessionId;
+        this._protocolVersion = (envelope.result?.protocolVersion as string) ?? version;
+        this._capabilities = (envelope.result?.capabilities as Record<string, unknown>) ?? {};
+        await this.send('notifications/initialized', {}, { notification: true }).catch(() => undefined);
+        return;
+      }
+      lastError = envelope.error ?? { message: `HTTP ${httpStatus}` };
     }
-    if (httpStatus !== 200) {
-      throw new McpError(`initialize failed: HTTP ${httpStatus}`);
-    }
-    this.sessionId = sessionIdHeader ?? this.sessionId;
-    this._protocolVersion = (envelope.result?.protocolVersion as string) ?? preferred;
-    this._capabilities = (envelope.result?.capabilities as Record<string, unknown>) ?? {};
-    // best-effort initialized notification
-    await this.send('notifications/initialized', {}, { notification: true }).catch(() => undefined);
+    throw new McpError(`initialize failed: ${lastError?.message ?? 'unknown'}`, lastError?.code);
   }
 
   private async ensureInitialized(): Promise<void> {
     if (!this.sessionId) await this.initialize();
   }
 
+  /**
+   * Send a session-scoped request, recovering from a stale session: an HTTP 404
+   * means the session expired, so reinitialize once and retry. Shared by both
+   * listTools() and callTool() so discovery and calls are equally resilient.
+   */
+  private async sessionRequest(
+    method: string,
+    params: Record<string, unknown>,
+  ): Promise<{ envelope: JsonRpcEnvelope; httpStatus: number; durationMs: number }> {
+    await this.ensureInitialized();
+    let r = await this.send(method, params);
+    if (r.httpStatus === 404) {
+      this.sessionId = undefined;
+      await this.initialize();
+      r = await this.send(method, params);
+    }
+    return { envelope: r.envelope, httpStatus: r.httpStatus, durationMs: r.durationMs };
+  }
+
+  /**
+   * Resolve whether a tool is a write before any network call. Honors an
+   * explicit opts.write; otherwise infers from the discovered `destructiveHint`,
+   * auto-discovering the catalog once when writes are disabled so a *visible*
+   * destructive tool can't slip through before discovery (the key safety case).
+   *
+   * Unknown/hidden tools are NOT client-blocked: a tool hidden from the session
+   * can't actually mutate (the server rejects it), and adversarial probes must
+   * be able to attempt tools they shouldn't have access to. So the guard blocks
+   * only tools *known* to be destructive; hidden/unknown tools fall through to
+   * server-side authz enforcement.
+   */
+  private async resolveIsWrite(name: string, opts: CallToolOptions): Promise<boolean> {
+    if (opts.write !== undefined) return opts.write;
+    if (this.catalog.has(name)) return this.catalog.get(name)!.annotations?.destructiveHint ?? false;
+    if (this.cfg.allowWrites) return false; // writes permitted → no need to gate-discover
+    try {
+      await this.listTools();
+    } catch {
+      return false; // discovery failed → let the call proceed; server still enforces authz
+    }
+    const meta = this.catalog.get(name);
+    return meta ? meta.annotations?.destructiveHint ?? false : false; // hidden/unknown → server-enforced
+  }
+
   // ── discovery ──────────────────────────────────────────────────────────────
 
   /** Paginated tools/list — follows nextCursor to completion so coverage can't false-green. */
   async listTools(): Promise<McpToolMeta[]> {
-    await this.ensureInitialized();
     const out: McpToolMeta[] = [];
     let cursor: string | undefined;
     for (let guard = 0; guard < 1000; guard++) {
-      const { envelope } = await this.send('tools/list', cursor ? { cursor } : {});
+      const { envelope } = await this.sessionRequest('tools/list', cursor ? { cursor } : {});
       if (envelope.error) throw new McpError(`tools/list failed: ${envelope.error.message}`, envelope.error.code);
       const page = (envelope.result?.tools as McpToolMeta[]) ?? [];
       out.push(...page);
@@ -192,18 +246,11 @@ export class McpExecutor {
    * read-only guardrail (McpWriteBlockedError) before any network call.
    */
   async callTool<T = any>(name: string, args: Record<string, unknown> = {}, opts: CallToolOptions = {}): Promise<McpToolResult<T>> {
-    const isWrite = opts.write ?? this.catalog.get(name)?.annotations?.destructiveHint ?? false;
+    // Read-only guardrail runs pre-network and fails closed for unknown writes.
+    const isWrite = await this.resolveIsWrite(name, opts);
     if (isWrite && !this.cfg.allowWrites) throw new McpWriteBlockedError(name);
 
-    await this.ensureInitialized();
-
-    let { envelope, httpStatus, durationMs } = await this.send('tools/call', { name, arguments: args });
-    // stale session → reinitialize once and retry
-    if (httpStatus === 404) {
-      this.sessionId = undefined;
-      await this.initialize();
-      ({ envelope, httpStatus, durationMs } = await this.send('tools/call', { name, arguments: args }));
-    }
+    const { envelope, httpStatus, durationMs } = await this.sessionRequest('tools/call', { name, arguments: args });
 
     const isError = envelope.result?.isError === true;
     const outcome = classifyMcpOutcome(envelope);
@@ -233,6 +280,19 @@ export class McpExecutor {
     const token =
       (preview.raw.result?.structuredContent?.confirmationToken as string | undefined) ??
       (preview.raw.result?.confirmationToken as string | undefined);
+    // Fail fast: never send commit if preview failed or returned no token —
+    // a commit with an undefined token would create a spurious second event.
+    if (!preview.ok || !token) {
+      const commit: McpToolResult<T> = {
+        ok: false,
+        outcome: BEHAVIOR_OUTCOMES.SKIPPED,
+        isError: false,
+        raw: {},
+        httpStatus: 0,
+        durationMs: 0,
+      };
+      return { preview, commit };
+    }
     const commit = await this.callTool<T>(
       name,
       { ...args, mode: 'commit', confirmationToken: token, idempotencyKey: opts.idempotencyKey },

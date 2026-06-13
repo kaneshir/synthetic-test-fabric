@@ -3,8 +3,16 @@ export type { McpClientOptions, McpTool, McpCallResult } from './mcp-client';
 export { normalizeScreenPath } from './screen-path';
 export type { SyntheticConfig } from './config';
 export { loadSyntheticConfig } from './config';
-export { BEHAVIOR_OUTCOMES, classifyOutcome } from './outcomes';
+export { BEHAVIOR_OUTCOMES, classifyOutcome, classifyMcpOutcome } from './outcomes';
 export type { BehaviorOutcome } from './outcomes';
+export { McpExecutor, McpError, McpWriteBlockedError, toolToScreen } from './mcp-target/executor';
+export type {
+  McpTargetConfig,
+  McpToolResult,
+  McpToolMeta,
+  CallToolOptions,
+  JsonRpcEnvelope,
+} from './mcp-target/executor';
 export {
   LISA_DB_SCHEMA_VERSION,
   applyLisaDbMigrations,

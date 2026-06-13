@@ -144,4 +144,60 @@ describe('McpExecutor (#43)', () => {
     expect(events[0].outcome).toBe(BEHAVIOR_OUTCOMES.ERROR_403);
     expect(events[0].outcome_detail).toMatch(/^mcp_error_-32003:/);
   });
+
+  // ── read-only guard: fail closed BEFORE discovery (review P1) ───────────────
+  it('blocks a write tool called before discovery (visible: via destructiveHint)', async () => {
+    const e = exec('valid-aal2'); // can see the write tool, but allowWrites is off
+    await expect(e.callTool('fixture.write.create', { mode: 'preview', name: 'x' })).rejects.toBeInstanceOf(McpWriteBlockedError);
+    e.flush();
+    expect(readEvents(dbPath).length).toBe(0);
+  });
+
+  it('does not client-block a tool hidden from the session — server authz rejects it instead (no mutation)', async () => {
+    // A write tool the token can't even see is not client-blocked (probes must be
+    // able to attempt it); the server rejects it and nothing mutates.
+    const e = exec('valid-readonly');
+    const r = await e.callTool('fixture.write.create', { mode: 'preview', name: 'x' });
+    expect(r.ok).toBe(false);
+    expect(r.errorCode).toBe(-32003); // server scope/authz rejection
+    expect(fx.mutationCount()).toBe(0);
+  });
+
+  it('allows a read tool called before discovery (auto-resolves as read)', async () => {
+    const e = exec('valid-readonly'); // allowWrites off, no prior listTools
+    const r = await e.callTool('fixture.read.item', { id: 'x' });
+    expect(r.ok).toBe(true);
+  });
+
+  // ── stale-session recovery in listTools (review P2) ─────────────────────────
+  it('listTools recovers from a stale session by reinitializing', async () => {
+    const e = exec('valid-readonly');
+    await e.initialize();
+    fx.expireAllSessions();
+    const tools = await e.listTools(); // would throw without the shared reinit path
+    expect(tools.length).toBeGreaterThan(0);
+  });
+
+  // ── protocol-version negotiation/fallback (review P2) ───────────────────────
+  it('negotiates a later configured protocol version when the preferred is unsupported', async () => {
+    const e = exec('valid-readonly', { protocolVersions: ['2099-01-01', '2025-03-26'] });
+    await e.initialize();
+    expect(e.negotiatedProtocolVersion).toBe('2025-03-26');
+  });
+
+  // ── previewThenCommit short-circuits on failed preview (review P2) ───────────
+  it('does not send commit when preview fails', async () => {
+    const f = await startFixture({ tokens: { wnormal: { scopes: ['write'], aal: 'normal', audience: 'mcp' } } });
+    try {
+      const e = new McpExecutor({ endpoint: f.url, dbPath, simulationId: 'sim-1', agentId: 'a', token: 'wnormal', allowWrites: true });
+      const { preview, commit } = await e.previewThenCommit('fixture.write.create', { name: 'widget' }, { idempotencyKey: 'k1' });
+      expect(preview.ok).toBe(false); // AAL2 step-up → preview rejected
+      expect(commit.outcome).toBe(BEHAVIOR_OUTCOMES.SKIPPED);
+      expect(f.mutationCount()).toBe(0);
+      e.flush();
+      expect(readEvents(dbPath).length).toBe(1); // only the preview event, no commit
+    } finally {
+      await f.close();
+    }
+  });
 });

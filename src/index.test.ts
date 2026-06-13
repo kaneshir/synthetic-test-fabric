@@ -127,4 +127,21 @@ describe('public API surface (src/index.ts)', () => {
       expectExported(name);
     });
   });
+
+  describe('mcp target testing (#43)', () => {
+    it.each([
+      'McpExecutor',
+      'McpError',
+      'McpWriteBlockedError',
+      'toolToScreen',
+      'classifyMcpOutcome',
+      'McpTargetConfig',
+      'McpToolResult',
+      'McpToolMeta',
+      'CallToolOptions',
+      'JsonRpcEnvelope',
+    ])('exports %s', (name) => {
+      expectExported(name);
+    });
+  });
 });

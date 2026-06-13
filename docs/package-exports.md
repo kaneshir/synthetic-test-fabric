@@ -279,6 +279,23 @@ Drop-in `Reporter` implementations included in the package.
 
 ---
 
+## MCP target testing (#43)
+
+| Export | Kind | Description |
+|--------|------|-------------|
+| `McpExecutor` | class | Streamable-HTTP MCP **target** client. Drives an MCP server as a system-under-test and records a BehaviorEvent per `tools/call`. Read-only by default (`allowWrites`). |
+| `McpError` | class | Thrown by `initialize`/`listTools` on a protocol failure. Has optional `.code`. |
+| `McpWriteBlockedError` | class | Thrown pre-network when a write/destructive tool is called without `allowWrites`. |
+| `classifyMcpOutcome` | function | Maps a JSON-RPC envelope (`error.code` / `result.isError`) to a `BehaviorOutcome` — classifies on the JSON-RPC layer (errors ride over HTTP 200), not HTTP status. |
+| `toolToScreen` | function | Stable `screen_path` for an MCP tool name (e.g. a `vendor.consumer.products.list` tool → `mcp_consumer_products_list`). |
+| `McpTargetConfig` | type | Constructor options for `McpExecutor` (endpoint, token/provider, protocol versions, `allowWrites`, timeout). |
+| `McpToolResult` | type | Result of a `callTool` — `ok`, `outcome`, `errorCode`, `isError`, raw JSON-RPC envelope, `httpStatus`. |
+| `McpToolMeta` | type | Discovered tool shape from `listTools` (name, schema, annotations). |
+| `CallToolOptions` | type | Per-call options (`write` force-override, `entityId`, `tick`). |
+| `JsonRpcEnvelope` | type | Raw JSON-RPC response envelope exposed on `McpToolResult.raw`. |
+
+---
+
 ## Misc
 
 | Export | Kind | Description |
