@@ -44,7 +44,7 @@ jobs:
           mapfile -t tests < <(npx jest --listTests --runInBand)
           for test_file in "${tests[@]}"; do
             echo "::group::${test_file#$GITHUB_WORKSPACE/}"
-            timeout 120s npx jest --forceExit --runInBand --testTimeout=15000 --runTestsByPath "$test_file"
+            timeout 240s npx jest --forceExit --runInBand --testTimeout=15000 --runTestsByPath "$test_file"
             echo "::endgroup::"
           done
 

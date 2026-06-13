@@ -321,7 +321,10 @@ describe('Release readiness — npm pack + install + npx fab-mcp', () => {
       fs.rmSync(tarballDir, { recursive: true, force: true });
       fs.rmSync(consumerDir, { recursive: true, force: true });
     }
-  }, 90_000);
+    // npm pack + a fresh install that recompiles native deps (better-sqlite3)
+    // routinely takes ~90–100s on CI runners; 90s was too tight and tripped
+    // intermittently. Give real headroom (paired with the 240s CI shell cap).
+  }, 180_000);
 });
 
 // ---------------------------------------------------------------------------
