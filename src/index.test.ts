@@ -161,4 +161,18 @@ describe('public API surface (src/index.ts)', () => {
       expectExported(name);
     });
   });
+
+  describe('mcp protocol probes (#46)', () => {
+    it.each([
+      'runProtocolProbes',
+      'classifyVerdict',
+      'ProbeVerdict',
+      'ProbeOutcome',
+      'ProbeResult',
+      'ProbeBatteryResult',
+      'ProbeOptions',
+    ])('exports %s', (name) => {
+      expectExported(name);
+    });
+  });
 });

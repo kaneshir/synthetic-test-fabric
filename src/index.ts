@@ -17,6 +17,8 @@ export { snapshotCatalog, diffCatalog, runMcpCoverage } from './mcp-target/disco
 export type { CatalogSnapshot, CatalogDiff, McpCoverageResult, CoverageOptions } from './mcp-target/discovery';
 export { generateInputs } from './mcp-target/schema-gen';
 export type { SchemaGenResult, JsonSchema } from './mcp-target/schema-gen';
+export { runProtocolProbes, classifyVerdict } from './mcp-target/probes';
+export type { ProbeVerdict, ProbeOutcome, ProbeResult, ProbeBatteryResult, ProbeOptions } from './mcp-target/probes';
 export {
   LISA_DB_SCHEMA_VERSION,
   applyLisaDbMigrations,
