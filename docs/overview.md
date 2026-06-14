@@ -133,13 +133,17 @@ You get, shaped as `FabricScore.details.mcp`:
 
 - **Coverage** — every advertised tool invoked with a schema-generated valid input
   (read-only by default; writes opt-in), reporting covered / uncovered /
-  skipped-by-policy + a ratio, plus catalog **drift** detection.
+  skipped-by-policy + a ratio.
 - **A protocol probe battery** — portable adversarial probes (unauthenticated,
   malformed JSON-RPC, unknown tool, schema-violating args, stale/missing session,
   unsupported version), classified on the JSON-RPC layer with a hard gate on
   violations *and* inconclusive results.
 - The **exercised protocol version**, so a later run against a newer server is
   distinguishable.
+
+For catalog **drift** (a tool added/removed, a schema or `destructiveHint`
+changed), pin and compare separately with `snapshotCatalog` / `diffCatalog` — it's
+a standalone helper, not part of the `assessMcpTarget` score.
 
 It is **read-only by default** (safe to run against production) and
 **protocol-portable** — product-specific authz probes (OAuth audience, AAL,
