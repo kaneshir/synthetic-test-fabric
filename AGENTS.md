@@ -11,6 +11,12 @@ framework for an autonomous QA loop. It is **not** a BlueSkil repo — it is
 product-neutral. BlueSkil is one consumer; a second product was onboarded
 without changing any framework code.
 
+As of v0.5.0 it also ships **MCP target testing** (`src/mcp-target/`): point STF
+at any MCP server as a *system under test* — schema-driven coverage + a portable
+protocol probe battery → `FabricScore.details.mcp`. This is the inverse of
+`fab-mcp` (which exposes STF itself over MCP). It is generic protocol testing —
+**no product-specific authz probes belong here** (those live in the adopter).
+
 Do not add BlueSkil-specific logic, fixture aliases, scenario names, or
 Firebase references to this repo.
 
@@ -27,6 +33,8 @@ src/                  Framework source (TypeScript)
   score.ts            Scoring dimension calculation
   screen-path.ts      Path extraction from behavior events
   persona.ts          Persona seeding utilities
+  mcp-target/         MCP target testing — McpExecutor, discovery (schema-gen),
+                      protocol probes, score, and a compliant fixture server
   *.test.ts           Unit tests (Jest)
 
 demo/                 Reference implementation (no external dependencies)

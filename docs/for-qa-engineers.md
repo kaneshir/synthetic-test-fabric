@@ -30,6 +30,33 @@ The ratio shifts: instead of 70% maintenance + 30% strategy, it inverts.
 
 ---
 
+## If your product exposes an MCP server
+
+More products now ship an **MCP server** so AI agents (ChatGPT, Claude, Gemini,
+internal copilots) can drive them. That's a new test surface — and agents exercise
+it differently than a human clicking through a UI. STF tests it for you:
+
+```ts
+import { assessMcpTarget } from 'synthetic-test-fabric';
+const score = await assessMcpTarget({ endpoint: 'https://app/mcp', dbPath: '',
+  simulationId: 'ci', agentId: 'probe', token: process.env.MCP_TOKEN });
+if (!score.passed) throw new Error('MCP target failed'); // gate CI on it
+```
+
+It discovers your tool catalog, checks **coverage** of every advertised tool, and
+runs a **protocol probe battery** (unauthenticated calls, malformed requests,
+schema-violating args, stale sessions, …) — failing the gate on anything that
+should have been rejected but wasn't. It's **read-only by default**, so it's safe
+to point at production.
+
+What stays yours: the *product-specific* security probes — "can a free-tier token
+call a paid tool", "does cross-org isolation hold", "is the write-confirmation
+contract forgeable". STF gives you the generic protocol floor + coverage; your
+domain knowledge writes the authz probes on top. See
+[mcp-target-testing.md](./mcp-target-testing.md).
+
+---
+
 ## Your Expertise Becomes the System's Intelligence
 
 The highest-leverage thing you contribute to this system is **persona authorship**.
