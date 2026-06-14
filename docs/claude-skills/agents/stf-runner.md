@@ -27,6 +27,9 @@ report.
 - Don't modify `src/` or any framework code.
 - Don't make architectural decisions about scoring weights, simulation
   parameters, or scenario design.
+- **MCP target testing** (`assessMcpTarget` / `runProtocolProbes`, v0.5.0+) is a
+  library API, not a `fab` command — if the user wants to test an MCP server,
+  surface it back to the parent session (see `docs/mcp-target-testing.md`).
 
 ## Default workflow
 

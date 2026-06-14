@@ -105,6 +105,51 @@ custom dashboard rather than shelling out.
 
 ---
 
+## Testing an MCP server (target testing)
+
+Separate from the QA loop above, STF can point at **any MCP server and test it as
+a system under test** — the way an AI agent will actually use it. This is the
+*inverse* of `fab-mcp` (which exposes STF itself over MCP): here an MCP server is
+the target, not the harness.
+
+Why it matters: as products expose MCP surfaces for agents (ChatGPT, Claude,
+Gemini, internal copilots), those surfaces need testing the way HTTP APIs do — but
+MCP is self-describing, so STF can discover your tools, auto-derive coverage, and
+run a portable protocol probe battery with no bespoke test code.
+
+```ts
+import { assessMcpTarget } from 'synthetic-test-fabric';
+
+const score = await assessMcpTarget({
+  endpoint: 'https://your-app/mcp',
+  dbPath: '.lisa_memory/lisa.db',
+  simulationId: 'ci', agentId: 'probe',
+  token: process.env.MCP_TOKEN,
+});
+if (!score.passed) throw new Error('MCP target assessment failed');
+```
+
+You get, shaped as `FabricScore.details.mcp`:
+
+- **Coverage** — every advertised tool invoked with a schema-generated valid input
+  (read-only by default; writes opt-in), reporting covered / uncovered /
+  skipped-by-policy + a ratio, plus catalog **drift** detection.
+- **A protocol probe battery** — portable adversarial probes (unauthenticated,
+  malformed JSON-RPC, unknown tool, schema-violating args, stale/missing session,
+  unsupported version), classified on the JSON-RPC layer with a hard gate on
+  violations *and* inconclusive results.
+- The **exercised protocol version**, so a later run against a newer server is
+  distinguishable.
+
+It is **read-only by default** (safe to run against production) and
+**protocol-portable** — product-specific authz probes (OAuth audience, AAL,
+cross-org, idempotency) live in your adopter layer. A compliant fixture
+(`startFixture()`) ships as a conformance double for your own tests.
+
+See [mcp-target-testing.md](./mcp-target-testing.md) and `demo/mcp-target.ts`.
+
+---
+
 ## Lisa MCP — AI-driven browser automation
 
 `@kaneshir/lisa-mcp` is an optional peer package that ships a precompiled Lisa
@@ -217,6 +262,10 @@ When `@kaneshir/lisa-mcp` is wired, two additional dimensions are populated:
 |-----------|--------|
 | `flakiness` | `FlakinessTracker` — per-flow failure rates; quarantined flow list |
 | `adversarial` | Adversarial persona probe results — violations found and top violation types |
+
+MCP target assessments (above) populate `FabricScore.details.mcp` rather than a
+scoring dimension — coverage ratio, the adversarial probe tally, and the exercised
+protocol version. Merge it via `mcpScoreToDetails(score)`.
 
 ---
 

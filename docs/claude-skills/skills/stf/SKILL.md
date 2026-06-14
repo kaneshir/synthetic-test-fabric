@@ -93,6 +93,39 @@ fab adapter validate src/adapters/MySlackReporter.ts --json
 fab doctor --json                       # confirm config still loads
 ```
 
+## Testing an MCP server (target testing, v0.5.0+)
+
+Separate from the QA loop above: STF can drive **any MCP server as a system under
+test** (the inverse of `fab-mcp`). This is a **library** capability — no `fab`
+command. Use it when the user says "test my MCP server", "check our MCP endpoint",
+"is our MCP tool surface safe/usable", or is shipping an MCP integration.
+
+One call does discovery + coverage + the protocol probe battery:
+
+```ts
+import { assessMcpTarget } from 'synthetic-test-fabric';
+
+const score = await assessMcpTarget({
+  endpoint: 'https://app/mcp',
+  dbPath: '',                          // '' = assessment-only (no recording)
+  simulationId: 'ci', agentId: 'probe',
+  token: process.env.MCP_TOKEN,        // or tokenProvider: async () => mintToken()
+});
+// → FabricScore.details.mcp shape: { coverage{…}, adversarial{…}, protocolVersion, passed }
+if (!score.passed) throw new Error('MCP target failed');
+```
+
+Key facts to remember:
+- **Read-only by default.** Write/destructive tools are skipped unless `{ includeWrites: true }`. Safe against prod.
+- **Classify on the JSON-RPC layer, never HTTP status** — MCP rejections ride over HTTP 200.
+- The probe battery is **protocol-portable only** (unauth, malformed JSON-RPC, unknown tool, schema-violating args, stale/missing session, bad version). Product-specific authz probes (OAuth audience, AAL, cross-org, token forgery, idempotency) belong in the **adopter's** code, not here.
+- Hard gate: a `violation` (succeeded where rejection expected) OR `inconclusive` fails the battery.
+- `startFixture()` is exported as a compliant conformance double for the adopter's own tests.
+
+Lower-level pieces if you need them: `McpExecutor` (drive calls), `runMcpCoverage`,
+`runProtocolProbes`, `snapshotCatalog`/`diffCatalog` (drift), `generateInputs`.
+Full guide: `docs/mcp-target-testing.md`.
+
 ## Anti-patterns to avoid
 
 - **Don't use `--json` and parse stdout text simultaneously.** `--json` mode

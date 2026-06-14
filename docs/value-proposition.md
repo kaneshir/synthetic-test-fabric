@@ -36,6 +36,26 @@ a test. The system gets smarter over time.
 
 ---
 
+## The next surface: testing what agents touch (v0.5.0)
+
+Software is growing a second front door. Alongside the human UI, products now
+expose **MCP servers** so AI agents can operate them directly — and that surface
+is shipping faster than anyone is testing it. An agent calling your tools fails in
+ways a human never would: malformed requests, missing authorization, schema drift,
+stale sessions.
+
+Synthetic Test Fabric now tests that surface too. Point it at any MCP endpoint and
+it discovers the tool catalog, measures coverage, and runs a portable battery of
+protocol-level adversarial probes — a CI gate on whether your agent-facing surface
+is **usable and safe**, with no bespoke test code. It is read-only by default
+(safe against production) and reports into the same `FabricScore`.
+
+The strategic point is the same one as the QA loop: the bottleneck isn't people,
+it's the absence of a system that exercises the surface the way it's actually used.
+For the agent era, that surface is MCP.
+
+---
+
 ## The Offshore Offset
 
 A senior QA engineer costs $120-180K/year. An offshore QA team of equivalent

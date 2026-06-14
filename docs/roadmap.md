@@ -4,6 +4,16 @@ This document describes what's planned for Synthetic Test Fabric. It is a living
 
 ---
 
+## Recently shipped
+
+- **MCP target testing** ✅ *shipped in v0.5.0* — point STF at any MCP server as a
+  *system under test*: schema-driven coverage, a portable protocol probe battery,
+  catalog drift detection, and a `FabricScore.details.mcp` score. Read-only by
+  default; protocol-portable (product authz probes stay in the adopter). See
+  [mcp-target-testing.md](./mcp-target-testing.md).
+
+---
+
 ## Guiding principles
 
 Every item on this roadmap is evaluated against three questions:
