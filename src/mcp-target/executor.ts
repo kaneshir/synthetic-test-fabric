@@ -46,6 +46,14 @@ export interface McpTargetConfig {
   allowWrites?: boolean;
   /** Per-request timeout in ms. Default 30_000. */
   timeoutMs?: number;
+  /**
+   * On HTTP 429 (rate limited), retry the request up to this many times — honouring the server's
+   * `Retry-After` header when present, else exponential backoff + jitter (capped). A 429 means the
+   * request was NOT processed, so retrying is safe even for writes. Default 5; set 0 to disable.
+   */
+  rateLimitRetries?: number;
+  /** Base delay (ms) for the exponential backoff used when a 429 carries no `Retry-After`. Default 500. */
+  retryBackoffBaseMs?: number;
 }
 
 export interface McpToolMeta {
@@ -327,28 +335,46 @@ export class McpExecutor {
     if (this.sessionId) headers['Mcp-Session-Id'] = this.sessionId;
     if (this._protocolVersion) headers['MCP-Protocol-Version'] = this._protocolVersion;
 
+    // Build the body ONCE so a retried request keeps the same JSON-RPC id — it's the same logical call.
     const payload: Record<string, unknown> = { jsonrpc: '2.0', method, params };
     if (!opts.notification) payload.id = this.rpcId++;
+    const body = JSON.stringify(payload);
 
     const start = Date.now();
-    try {
-      const res = await fetch(this.cfg.endpoint, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(this.cfg.timeoutMs),
-      });
-      const sessionIdHeader = res.headers.get('mcp-session-id') ?? undefined;
-      const envelope = await parseBody(res);
-      return { envelope, sessionIdHeader, httpStatus: res.status, durationMs: Date.now() - start };
-    } catch (err) {
-      // Network / timeout → synthesize an envelope so callers still get an outcome.
-      const aborted = (err as Error)?.name === 'TimeoutError' || (err as Error)?.name === 'AbortError';
-      return {
-        envelope: { error: { code: aborted ? -32000 : -32000, message: aborted ? 'request timed out' : `transport error: ${(err as Error)?.message}` } },
-        httpStatus: 0,
-        durationMs: Date.now() - start,
-      };
+    const maxRetries = Math.max(0, this.cfg.rateLimitRetries ?? DEFAULT_RATE_LIMIT_RETRIES); // clamp: a negative would loop forever
+    const baseMs = this.cfg.retryBackoffBaseMs ?? DEFAULT_RETRY_BACKOFF_BASE_MS;
+
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const res = await fetch(this.cfg.endpoint, {
+          method: 'POST',
+          headers,
+          body,
+          signal: AbortSignal.timeout(this.cfg.timeoutMs),
+        });
+        // Polite-client backoff: a 429 means the request was NOT processed (safe to retry, even for a
+        // write). Honour Retry-After when present, else exponential backoff + jitter — both capped — so a
+        // burst against a rate-limited server self-paces instead of failing the call.
+        if (res.status === 429 && attempt < maxRetries) {
+          const waitMs = retryAfterMs(res) ?? baseMs * 2 ** attempt + Math.floor(Math.random() * baseMs);
+          // Release the body before reusing the connection — undici/fetch keep-alive can stall the next
+          // request on this socket if the 429 body is left undrained.
+          await res.body?.cancel().catch(() => undefined);
+          await delay(Math.min(waitMs, MAX_RETRY_WAIT_MS));
+          continue;
+        }
+        const sessionIdHeader = res.headers.get('mcp-session-id') ?? undefined;
+        const envelope = await parseBody(res);
+        return { envelope, sessionIdHeader, httpStatus: res.status, durationMs: Date.now() - start };
+      } catch (err) {
+        // Network / timeout → synthesize an envelope so callers still get an outcome.
+        const aborted = (err as Error)?.name === 'TimeoutError' || (err as Error)?.name === 'AbortError';
+        return {
+          envelope: { error: { code: -32000, message: aborted ? 'request timed out' : `transport error: ${(err as Error)?.message}` } },
+          httpStatus: 0,
+          durationMs: Date.now() - start,
+        };
+      }
     }
   }
 
@@ -392,6 +418,25 @@ export class McpExecutor {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// 429 backoff defaults (overridable per McpTargetConfig).
+const DEFAULT_RATE_LIMIT_RETRIES = 5;
+const DEFAULT_RETRY_BACKOFF_BASE_MS = 500;
+const MAX_RETRY_WAIT_MS = 60_000; // never block a single attempt longer than this
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
+}
+
+/** Parse a `Retry-After` header (delta-seconds OR HTTP-date) into ms-from-now; null if absent/unparseable. */
+function retryAfterMs(res: Response): number | null {
+  const h = res.headers.get('retry-after');
+  if (!h) return null;
+  const secs = Number(h);
+  if (Number.isFinite(secs)) return Math.max(0, secs * 1000);
+  const when = Date.parse(h);
+  return Number.isNaN(when) ? null : Math.max(0, when - Date.now());
+}
 
 /** Parse an MCP response body as either plain JSON or a request-scoped SSE stream. */
 async function parseBody(res: Response): Promise<JsonRpcEnvelope> {
