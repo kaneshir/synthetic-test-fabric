@@ -81,7 +81,8 @@ export function classifyMcpOutcome(
   /**
    * The HTTP status the envelope arrived on. JSON-RPC errors ride over HTTP 200 (the primary path
    * below), so this is a FALLBACK only: a rejection at the framework/guard layer — a REST-style 4xx
-   * with no JSON-RPC `error` (NestJS/FastAPI/Express, etc.) — is still a rejection and must not be
+   * with no JSON-RPC `error` (typical of guard/middleware in common web frameworks) — is still a
+   * rejection and must not be
    * mis-classified as success. Optional + backward-compatible.
    */
   httpStatus?: number,
