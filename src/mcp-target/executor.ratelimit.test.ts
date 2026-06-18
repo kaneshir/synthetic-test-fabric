@@ -13,9 +13,15 @@ describe('McpExecutor 429 backoff', () => {
   let url: string;
   let total = 0;
   let mode: { rejectFirst: number } | { rejectAll: true } = { rejectFirst: 0 };
+  // How the 429 advertises its retry delay: a delta-seconds header, an HTTP-date, or none (→ exp backoff).
+  let retryAfter: 'zero' | 'date' | 'none' = 'zero';
 
   function rateLimited(res: http.ServerResponse): void {
-    res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '0' });
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (retryAfter === 'zero') headers['Retry-After'] = '0';
+    else if (retryAfter === 'date') headers['Retry-After'] = new Date(Date.now() + 300).toUTCString();
+    // 'none' → omit the header so the executor must fall back to exponential backoff + jitter
+    res.writeHead(429, headers);
     res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32029, message: 'rate limited' } }));
   }
 
@@ -37,7 +43,7 @@ describe('McpExecutor 429 backoff', () => {
     url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/mcp`;
   });
   afterAll(() => new Promise<void>((r) => server.close(() => r())));
-  beforeEach(() => { total = 0; });
+  beforeEach(() => { total = 0; retryAfter = 'zero'; });
 
   const make = (extra = {}) =>
     new McpExecutor({ endpoint: url, dbPath: '', simulationId: 's', agentId: 'a', token: 't', retryBackoffBaseMs: 1, ...extra });
@@ -62,5 +68,21 @@ describe('McpExecutor 429 backoff', () => {
     const exec = make({ rateLimitRetries: 0 });
     await expect(exec.initialize()).rejects.toBeInstanceOf(McpError);
     expect(total).toBe(1); // no retry
+  });
+
+  it('falls back to exponential backoff when the 429 carries NO Retry-After header', async () => {
+    mode = { rejectFirst: 2 };
+    retryAfter = 'none'; // exercises the baseMs * 2**attempt + jitter branch
+    const exec = make({ rateLimitRetries: 5, retryBackoffBaseMs: 1 });
+    await expect(exec.initialize()).resolves.toBeUndefined();
+    expect(total).toBeGreaterThan(2);
+  });
+
+  it('honours an HTTP-date Retry-After header', async () => {
+    mode = { rejectFirst: 1 };
+    retryAfter = 'date'; // Retry-After as an RFC HTTP-date, not delta-seconds
+    const exec = make({ rateLimitRetries: 5 });
+    await expect(exec.initialize()).resolves.toBeUndefined();
+    expect(total).toBeGreaterThan(1);
   });
 });

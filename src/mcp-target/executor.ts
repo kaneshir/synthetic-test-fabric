@@ -341,7 +341,7 @@ export class McpExecutor {
     const body = JSON.stringify(payload);
 
     const start = Date.now();
-    const maxRetries = this.cfg.rateLimitRetries ?? DEFAULT_RATE_LIMIT_RETRIES;
+    const maxRetries = Math.max(0, this.cfg.rateLimitRetries ?? DEFAULT_RATE_LIMIT_RETRIES); // clamp: a negative would loop forever
     const baseMs = this.cfg.retryBackoffBaseMs ?? DEFAULT_RETRY_BACKOFF_BASE_MS;
 
     for (let attempt = 0; ; attempt++) {
@@ -357,6 +357,9 @@ export class McpExecutor {
         // burst against a rate-limited server self-paces instead of failing the call.
         if (res.status === 429 && attempt < maxRetries) {
           const waitMs = retryAfterMs(res) ?? baseMs * 2 ** attempt + Math.floor(Math.random() * baseMs);
+          // Release the body before reusing the connection — undici/fetch keep-alive can stall the next
+          // request on this socket if the 429 body is left undrained.
+          await res.body?.cancel().catch(() => undefined);
           await delay(Math.min(waitMs, MAX_RETRY_WAIT_MS));
           continue;
         }
