@@ -73,10 +73,19 @@ export function classifyOutcome(error: unknown): BehaviorOutcome {
  *
  * Maps onto the existing BEHAVIOR_OUTCOMES set — no schema migration required.
  */
-export function classifyMcpOutcome(envelope: {
-  error?: { code?: number } | null;
-  result?: { isError?: boolean } | null;
-}): BehaviorOutcome {
+export function classifyMcpOutcome(
+  envelope: {
+    error?: { code?: number } | null;
+    result?: { isError?: boolean } | null;
+  },
+  /**
+   * The HTTP status the envelope arrived on. JSON-RPC errors ride over HTTP 200 (the primary path
+   * below), so this is a FALLBACK only: a rejection at the framework/guard layer — a REST-style 4xx
+   * with no JSON-RPC `error` (NestJS/FastAPI/Express, etc.) — is still a rejection and must not be
+   * mis-classified as success. Optional + backward-compatible.
+   */
+  httpStatus?: number,
+): BehaviorOutcome {
   const code = envelope.error?.code;
   if (typeof code === 'number') {
     switch (code) {
@@ -94,5 +103,29 @@ export function classifyMcpOutcome(envelope: {
   }
   // A `result` flagged isError is a tool-level failure with no protocol code.
   if (envelope.result?.isError) return BEHAVIOR_OUTCOMES.ERROR_UNKNOWN;
+  // No JSON-RPC error code: fall back to the HTTP status so a framework-layer rejection (a guard
+  // returning a 4xx before the JSON-RPC handler) isn't silently bucketed as success.
+  if (typeof httpStatus === 'number' && httpStatus >= 400) {
+    return classifyOutcome({ status: httpStatus });
+  }
   return BEHAVIOR_OUTCOMES.SUCCESS;
+}
+
+/**
+ * Canonical HTTP-status → JSON-RPC-equivalent error code (the inverse of the switch above). Lets a
+ * transport synthesize an `errorCode` when a server rejects at the HTTP layer with no JSON-RPC body,
+ * so consumers can recognize the rejection by code regardless of how the server framed it.
+ */
+export function httpStatusToMcpErrorCode(status: number): number | undefined {
+  switch (status) {
+    case 401: return -32001;
+    case 403: return -32003;
+    case 404: return -32004;
+    case 429: return -32029;
+    case 400:
+    case 422: return -32602;
+    default:
+      if (status >= 500) return -32000;
+      return status >= 400 ? -32600 : undefined;
+  }
 }

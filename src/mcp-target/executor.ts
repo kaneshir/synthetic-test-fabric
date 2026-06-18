@@ -22,7 +22,7 @@
 
 import { randomUUID } from 'crypto';
 import { BehaviorEventRecorder } from '../recorder';
-import { classifyMcpOutcome, BehaviorOutcome, BEHAVIOR_OUTCOMES } from '../outcomes';
+import { classifyMcpOutcome, httpStatusToMcpErrorCode, BehaviorOutcome, BEHAVIOR_OUTCOMES } from '../outcomes';
 
 // ---------------------------------------------------------------------------
 // Public types (transport-agnostic surface)
@@ -261,17 +261,22 @@ export class McpExecutor {
     const { envelope, httpStatus, durationMs } = await this.sessionRequest('tools/call', { name, arguments: args });
 
     const isError = envelope.result?.isError === true;
-    const outcome = classifyMcpOutcome(envelope);
+    const outcome = classifyMcpOutcome(envelope, httpStatus);
     const ok = !envelope.error && !isError && httpStatus < 400;
+    // A framework-layer rejection (4xx, no JSON-RPC error) carries no protocol code — synthesize one
+    // from the HTTP status so callers can recognize the rejection by code (e.g. 403 → -32003).
+    const errorCode = envelope.error?.code ?? (httpStatus >= 400 ? httpStatusToMcpErrorCode(httpStatus) : undefined);
     const detail = envelope.error
       ? `mcp_error_${envelope.error.code}: ${envelope.error.message}`
       : isError
         ? 'mcp_result_isError'
-        : null;
+        : httpStatus >= 400
+          ? `http_${httpStatus}`
+          : null;
 
     this.record(`tools/call ${name}`, opts.entityId ?? this.cfg.agentId, opts.tick ?? this._tick, ok ? 'completed' : 'failed', outcome, detail, name);
 
-    return { ok, outcome, errorCode: envelope.error?.code, isError, raw: envelope, httpStatus, durationMs };
+    return { ok, outcome, errorCode, isError, raw: envelope, httpStatus, durationMs };
   }
 
   /**
