@@ -6,13 +6,42 @@
 [![Node >=20](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
 
 **Self-improving QA infrastructure. No test maintenance. Coverage grows every run.**
+**Plus a one-call test harness for any MCP server — coverage + adversarial security, no adapters.**
 
 ---
 
-Synthetic Test Fabric is a TypeScript framework that replaces hand-written test
-maintenance with a closed loop: generate synthetic users → simulate their behavior →
-extract observed paths → generate and execute browser flows → score results → feed
-findings into the next iteration.
+## ⚡ Test any MCP server in 60 seconds
+
+Building an MCP server or agent product? Point STF at the endpoint and get **tool
+coverage + an adversarial security battery** back — the way an agent will actually hit
+it. No adapters, no scaffolding, read-only by default (safe against prod).
+
+```ts
+import { assessMcpTarget } from 'synthetic-test-fabric';
+
+const score = await assessMcpTarget({
+  endpoint: 'https://your-app.example.com/mcp',
+  token: process.env.MCP_ACCESS_TOKEN,            // or tokenProvider: async () => mintToken()
+  dbPath: '.lisa_memory/lisa.db', simulationId: 'ci', agentId: 'probe',
+});
+
+if (!score.passed) throw new Error('MCP target failed');
+// score.details.mcp → tool coverage %, protocol probes, and authz findings:
+// audience binding · scope / cross-tenant isolation · write-not-self-grantable ·
+// confirmation-token forgery · idempotency abuse — classified at the JSON-RPC
+// layer AND framework-level HTTP errors (a guard's 403 is read as a 403).
+```
+
+→ [docs/mcp-target-testing.md](docs/mcp-target-testing.md) · runnable: `npx tsx demo/mcp-target.ts`
+
+It found real bugs dogfooding a live regulated platform — a rate-limit failure mode
+the client mishandled, and that the platform's cross-tenant isolation actually holds.
+
+---
+
+The rest of STF is a full **closed-loop test fabric** for any app: generate synthetic
+users → simulate their behavior → extract observed paths → generate and execute browser
+flows → score results → feed findings into the next iteration.
 
 You write adapters for your app once. The framework does the rest.
 
@@ -119,22 +148,15 @@ unexplored scenarios; low `regression_health` flags regressions immediately.
 
 ## What's new in v0.5.0 — MCP target testing
 
-Point STF at **any product's MCP server** and run closed-loop coverage +
-adversarial verification — the way an agent will actually use it (the inverse of
-`fab-mcp`, where MCP is the *system under test*). MCP is self-describing, so STF
-discovers your surface, auto-derives coverage, and ships a portable protocol probe
-battery. One call:
+Point STF at **any product's MCP server** and run closed-loop coverage + adversarial
+verification — the way an agent will actually use it (the inverse of `fab-mcp`, where
+MCP is the *system under test*). MCP is self-describing, so STF discovers your surface,
+auto-derives coverage, and ships a portable protocol probe battery.
 
-```ts
-import { assessMcpTarget } from 'synthetic-test-fabric';
-const score = await assessMcpTarget({ endpoint: 'https://app/mcp', dbPath: '.lisa_memory/lisa.db',
-  simulationId: 'ci', agentId: 'probe', token: process.env.MCP_TOKEN });
-if (!score.passed) throw new Error('MCP target failed'); // → FabricScore.details.mcp
-```
-
-Read-only by default (safe against prod), classifies on the JSON-RPC layer (errors
-ride over HTTP 200), targets protocol `2025-03-26`. See
-[docs/mcp-target-testing.md](docs/mcp-target-testing.md) and `demo/mcp-target.ts`.
+→ See [**Test any MCP server in 60 seconds**](#-test-any-mcp-server-in-60-seconds) above,
+[docs/mcp-target-testing.md](docs/mcp-target-testing.md), and `demo/mcp-target.ts`.
+Targets protocol `2025-03-26`; classifies on the JSON-RPC layer (errors ride over HTTP
+200) **and** framework-level HTTP rejections (0.5.2).
 
 ---
 
